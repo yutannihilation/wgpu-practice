@@ -230,7 +230,7 @@ impl State {
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
             &wgpu::vertex_attr_array![0 => Float4, 1 => Float2],
             SAMPLE_COUNT,
-            vec![sc_desc.format],
+            vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
         );
 
         // Texture to draw the unmodified version
@@ -344,9 +344,15 @@ impl State {
 
         // Texture views
         let staging_texture_view = self.staging_texture.create_default_view();
-        let multisample_texture_view = self.multisample_texture.create_default_view();
+        let png_texture_view = self.png_texture.create_default_view();
 
-        let mx_total = generate_matrix(self.sc_desc.width as f32 / self.sc_desc.height as f32);
+        let multisample_texture_view = self.multisample_texture.create_default_view();
+        let multisample_png_texture_view = self.multisample_png_texture.create_default_view();
+
+        let mx_total = generate_matrix(
+            self.sc_desc.width as f32 / self.sc_desc.height as f32,
+            self.frame as f32 / 200.0,
+        );
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = self
             .device
@@ -368,45 +374,55 @@ impl State {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: Borrowed(&[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &multisample_texture_view,
-                    resolve_target: Some(&frame.output.view),
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: true,
+                color_attachments: Borrowed(&[
+                    wgpu::RenderPassColorAttachmentDescriptor {
+                        attachment: &multisample_texture_view,
+                        resolve_target: Some(&frame.output.view),
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
                     },
-                }]),
+                    wgpu::RenderPassColorAttachmentDescriptor {
+                        attachment: &multisample_png_texture_view,
+                        resolve_target: Some(&png_texture_view),
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
+                    },
+                ]),
                 depth_stencil_attachment: None,
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            render_pass.set_bind_group(0, &bind_group, &[]);
 
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
         }
 
-        // encoder.copy_texture_to_buffer(
-        //     wgpu::TextureCopyView {
-        //         texture: &self.png_texture,
-        //         mip_level: 0,
-        //         origin: wgpu::Origin3d::ZERO,
-        //     },
-        //     wgpu::BufferCopyView {
-        //         buffer: &self.png_buffer,
-        //         layout: wgpu::TextureDataLayout {
-        //             offset: 0,
-        //             bytes_per_row: self.png_dimensions.padded_bytes_per_row as u32,
-        //             rows_per_image: 0,
-        //         },
-        //     },
-        //     wgpu::Extent3d {
-        //         width: self.sc_desc.width,
-        //         height: self.sc_desc.height,
-        //         depth: 1,
-        //     },
-        // );
+        encoder.copy_texture_to_buffer(
+            wgpu::TextureCopyView {
+                texture: &self.png_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::BufferCopyView {
+                buffer: &self.png_buffer,
+                layout: wgpu::TextureDataLayout {
+                    offset: 0,
+                    bytes_per_row: self.png_dimensions.padded_bytes_per_row as u32,
+                    rows_per_image: 0,
+                },
+            },
+            wgpu::Extent3d {
+                width: self.sc_desc.width,
+                height: self.sc_desc.height,
+                depth: 1,
+            },
+        );
 
         self.queue.submit(Some(encoder.finish()));
 
@@ -554,10 +570,10 @@ fn create_render_pipeline(
     })
 }
 
-fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
+fn generate_matrix(aspect_ratio: f32, frame: f32) -> cgmath::Matrix4<f32> {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 10.0);
     let mx_view = cgmath::Matrix4::look_at(
-        cgmath::Point3::new(1.5f32, -5.0, 3.0),
+        cgmath::Point3::new(1.5f32 * frame.sin(), -5.0 * frame.cos(), 3.0),
         cgmath::Point3::new(0f32, 0.0, 0.0),
         cgmath::Vector3::unit_z(),
     );

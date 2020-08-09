@@ -2,6 +2,7 @@
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Target;
+layout(location = 1) out vec4 png_Target;
 
 void main() {
     vec4 tex = vec4(0.7);
