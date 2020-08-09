@@ -8,4 +8,6 @@ void main() {
     vec4 tex = vec4(0.7);
     float mag = length(v_TexCoord-vec2(0.5));
     o_Target = vec4(mix(tex.xyz, vec3(0.0), mag*mag), 1.0);
+    
+    png_Target = o_Target;
 }
