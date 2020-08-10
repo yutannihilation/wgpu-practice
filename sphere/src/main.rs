@@ -127,6 +127,8 @@ struct State {
     index_buf: wgpu::Buffer,
     index_count: usize,
 
+    depth_texture: wgpu::Texture,
+
     // Texture for MASS
     multisample_texture: wgpu::Texture,
     multisample_png_texture: wgpu::Texture, // a texture for PNG has a different TextureFormat, so we need another multisampled texture than others
@@ -231,6 +233,15 @@ impl State {
             &wgpu::vertex_attr_array![0 => Float4, 1 => Float2],
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
+            Some(wgpu::DepthStencilStateDescriptor {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_read_mask: 0,
+                stencil_write_mask: 0,
+            }),
         );
 
         // Texture to draw the unmodified version
@@ -242,6 +253,9 @@ impl State {
 
         let multisample_png_texture =
             create_multisampled_framebuffer(&device, &sc_desc, wgpu::TextureFormat::Rgba8UnormSrgb);
+
+        // Depth texture ----------------------------------------------------------------------------------------------------
+        let depth_texture = create_depth_texture(&device, &sc_desc);
 
         // PNG output ----------------------------------------------------------------------------------------------------
 
@@ -274,6 +288,8 @@ impl State {
             multisample_texture,
             multisample_png_texture,
 
+            depth_texture,
+
             png_texture,
             png_buffer,
             png_dimensions,
@@ -302,6 +318,7 @@ impl State {
             &self.sc_desc,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        self.depth_texture = create_depth_texture(&self.device, &self.sc_desc);
 
         let (png_dimensions, png_buffer, png_texture) = create_png_texture_and_buffer(
             &self.device,
@@ -349,6 +366,8 @@ impl State {
         let multisample_texture_view = self.multisample_texture.create_default_view();
         let multisample_png_texture_view = self.multisample_png_texture.create_default_view();
 
+        let depth_texture_view = self.depth_texture.create_default_view();
+
         let mx_total = generate_matrix(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
             self.frame as f32 / 200.0,
@@ -392,7 +411,17 @@ impl State {
                         },
                     },
                 ]),
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &depth_texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: true,
+                    }),
+                }),
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
@@ -448,13 +477,12 @@ fn create_texture(
     usage: wgpu::TextureUsage,
     format: wgpu::TextureFormat,
 ) -> wgpu::Texture {
-    let texture_extent = wgpu::Extent3d {
-        width: sc_desc.width,
-        height: sc_desc.height,
-        depth: 1,
-    };
     let frame_descriptor = &wgpu::TextureDescriptor {
-        size: texture_extent,
+        size: wgpu::Extent3d {
+            width: sc_desc.width,
+            height: sc_desc.height,
+            depth: 1,
+        },
         mip_level_count: 1,
         sample_count: sample_count,
         dimension: wgpu::TextureDimension::D2,
@@ -494,6 +522,22 @@ fn create_multisampled_framebuffer(
     )
 }
 
+fn create_depth_texture(
+    device: &wgpu::Device,
+    sc_desc: &wgpu::SwapChainDescriptor,
+) -> wgpu::Texture {
+    let usage = wgpu::TextureUsage::OUTPUT_ATTACHMENT
+        | wgpu::TextureUsage::SAMPLED
+        | wgpu::TextureUsage::COPY_SRC;
+    create_texture(
+        device,
+        sc_desc,
+        SAMPLE_COUNT,
+        usage,
+        wgpu::TextureFormat::Depth32Float,
+    )
+}
+
 fn create_bind_group(
     device: &wgpu::Device,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -526,6 +570,7 @@ fn create_render_pipeline(
     attr_array: &[wgpu::VertexAttributeDescriptor],
     sample_count: u32,
     formats: Vec<wgpu::TextureFormat>,
+    depth_stencil_state: Option<wgpu::DepthStencilStateDescriptor>,
 ) -> wgpu::RenderPipeline {
     let v: Vec<_> = formats
         .iter()
@@ -555,7 +600,7 @@ fn create_render_pipeline(
         }),
         primitive_topology: wgpu::PrimitiveTopology::TriangleList,
         color_states: Borrowed(&v.as_slice()),
-        depth_stencil_state: None,
+        depth_stencil_state: depth_stencil_state,
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
             vertex_buffers: Borrowed(&[wgpu::VertexBufferDescriptor {
