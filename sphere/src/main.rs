@@ -398,7 +398,7 @@ impl State {
                         attachment: &multisample_texture_view,
                         resolve_target: Some(&frame.output.view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: true,
                         },
                     },
@@ -406,7 +406,7 @@ impl State {
                         attachment: &multisample_png_texture_view,
                         resolve_target: Some(&png_texture_view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: true,
                         },
                     },
