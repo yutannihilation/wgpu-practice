@@ -114,6 +114,8 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
+const NUM_INSTANCES: u32 = 10;
+
 // The original code is https://sotrh.github.io/learn-wgpu/beginner/tutorial7-instancing/#another-better-way-storage-buffers
 struct Instance {
     position: cgmath::Vector3<f32>,
@@ -275,32 +277,26 @@ impl State {
 
         // Instances ----------------------------------------------------------------------
 
-        // make a 10 by 10 grid of objects
-        let instances: Vec<Instance> = (0..2)
-            .flat_map(|z| {
-                (0..2).map(move |x| {
-                    let position = cgmath::Vector3 {
-                        x: (x * 2) as f32,
-                        y: 0.0,
-                        z: (z * 2) as f32,
-                    };
+        let instances: Vec<Instance> = (0..NUM_INSTANCES)
+            .map(|x| {
+                let position = cgmath::Vector3 {
+                    x: x as f32,
+                    y: x as f32,
+                    z: x as f32,
+                };
 
-                    let rotation = if position.is_zero() {
-                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                        // as Quaternions can effect scale if they're not create correctly
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(
-                            position.clone().normalize(),
-                            cgmath::Deg(45.0),
-                        )
-                    };
+                let rotation = if position.is_zero() {
+                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can effect scale if they're not create correctly
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(
+                        position.clone().normalize(),
+                        cgmath::Deg(20.0 * (x as f32)),
+                    )
+                };
 
-                    Instance { position, rotation }
-                })
+                Instance { position, rotation }
             })
             .collect();
 
@@ -364,7 +360,7 @@ impl State {
                 attributes: Borrowed(&vertex_attrs_vertex),
             },
             wgpu::VertexBufferDescriptor {
-                stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                stride: std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Instance,
                 attributes: Borrowed(&vertex_attrs_instance),
             },
@@ -609,7 +605,7 @@ impl State {
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buf.slice(..));
 
-            render_pass.draw_indexed(0..(self.index_count as u32), 0, 1..2);
+            render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
         }
 
         encoder.copy_texture_to_buffer(
