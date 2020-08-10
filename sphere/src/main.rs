@@ -116,8 +116,9 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Light {
-    position: cgmath::Vector3<f32>,
-    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+    // Though we only need vec3, due to uniforms requiring 16 byte (4 float) spacing,
+    // use vec4 to align with the requirement
+    position: cgmath::Vector4<f32>,
     color: cgmath::Vector3<f32>,
 }
 
@@ -143,6 +144,7 @@ struct State {
 
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
+    light_render_pipeline: wgpu::RenderPipeline,
 
     // Texture for MASS
     multisample_texture: wgpu::Texture,
@@ -234,9 +236,19 @@ impl State {
             )]),
         });
 
+        let depth_stencil_state = wgpu::DepthStencilStateDescriptor {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+            stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+            stencil_read_mask: 0,
+            stencil_write_mask: 0,
+        };
+
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
-            position: (7.0, 7.0, 3.0).into(),
+            position: (3.0, 3.0, 3.0, 1.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         };
         let light_size = std::mem::size_of_val(&light) as u64;
@@ -270,23 +282,23 @@ impl State {
             label: None,
         });
 
-        // // for debugging
-        // let light_render_pipeline_layout =
-        //     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        //         bind_group_layouts: Borrowed(&[]),
-        //         push_constant_ranges: Borrowed(&[]),
-        //     });
+        // for debugging
+        let light_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: Borrowed(&[&bind_group_layout, &light_bind_group_layout]),
+                push_constant_ranges: Borrowed(&[]),
+            });
 
-        // let light_render_pipeline = create_render_pipeline(
-        //     &device,
-        //     &light_render_pipeline_layout,
-        //     &device.create_shader_module(wgpu::include_spirv!("shaders/shader.vert.spv")),
-        //     &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
-        //     &wgpu::vertex_attr_array![0 => Float4, 1 => Float2, 2 => Float3],
-        //     SAMPLE_COUNT,
-        //     vec![sc_desc.format],
-        //     None,
-        // );
+        let light_render_pipeline = create_render_pipeline(
+            &device,
+            &light_render_pipeline_layout,
+            &device.create_shader_module(wgpu::include_spirv!("shaders/light.vert.spv")),
+            &device.create_shader_module(wgpu::include_spirv!("shaders/light.frag.spv")),
+            &wgpu::vertex_attr_array![0 => Float4, 1 => Float3],
+            SAMPLE_COUNT,
+            vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
+            Some(depth_stencil_state.clone()),
+        );
 
         // Render pipeline ------------------------------------------------------------------------------------------------------------
 
@@ -304,15 +316,7 @@ impl State {
             &wgpu::vertex_attr_array![0 => Float4, 1 => Float3],
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
-            Some(wgpu::DepthStencilStateDescriptor {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
-            }),
+            Some(depth_stencil_state.clone()),
         );
 
         // Texture to draw the unmodified version
@@ -363,6 +367,7 @@ impl State {
 
             light_buffer,
             light_bind_group,
+            light_render_pipeline,
 
             png_texture,
             png_buffer,
@@ -505,6 +510,16 @@ impl State {
                 }),
             });
 
+            // draw light
+            render_pass.set_pipeline(&self.light_render_pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+            render_pass.set_index_buffer(self.index_buf.slice(..));
+            render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+
+            render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
+
+            // draw cube
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
@@ -698,11 +713,11 @@ fn create_render_pipeline(
 }
 
 fn generate_matrix(aspect_ratio: f32, frame: f32) -> cgmath::Matrix4<f32> {
-    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 10.0);
+    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
     let mx_view = cgmath::Matrix4::look_at(
         cgmath::Point3::new(
-            5.0f32 * frame.sin(),
-            -5.0 * frame.cos(),
+            10.0f32 * frame.sin(),
+            -10.0 * frame.cos(),
             4.0 * (0.2 * frame - 0.1).sin(),
         ),
         cgmath::Point3::new(0f32, 0.0, 0.0),

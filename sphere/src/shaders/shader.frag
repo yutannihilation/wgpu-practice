@@ -7,7 +7,7 @@ layout(location = 0) out vec4 f_color;
 layout(location = 1) out vec4 png_color;
 
 layout(set = 1, binding = 0) uniform Light {
-    vec3 light_position;
+    vec4 light_position;
     vec3 light_color;
 };
 
@@ -18,7 +18,7 @@ void main() {
     vec3 ambient_color = light_color * ambient_strength;
 
     vec3 normal = normalize(v_normal);
-    vec3 light_dir = normalize(light_position - v_position);
+    vec3 light_dir = normalize(light_position.xyz - v_position);
 
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
     vec3 diffuse_color = light_color * diffuse_strength;
