@@ -13,9 +13,13 @@ layout(set = 0, binding = 0) uniform Locals {
 };
 
 void main() {
-    v_normal = a_normal;
+    mat3 normal_matrix = mat3(transpose(inverse(a_model)));
+    v_normal = normal_matrix * a_normal;
 
     v_position = a_position.xyz;
 
-    gl_Position = u_Transform * a_model * a_position;
+    vec4 model_space = a_model * a_position;
+    v_position = model_space.xyz;
+
+    gl_Position = u_Transform * model_space;
 }

@@ -286,7 +286,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
-            position: (3.0, 3.0, 3.0, 1.0).into(),
+            position: (-3.0, -5.0, 10.0, 1.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         };
         let light_size = std::mem::size_of_val(&light) as u64;
@@ -504,7 +504,7 @@ impl State {
 
         let mx_total = generate_matrix(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
-            self.frame as f32 / 50.0,
+            self.frame as f32 / 500.0,
         );
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = self
@@ -633,9 +633,9 @@ fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
     let instances: Vec<Instance> = (0..NUM_INSTANCES)
         .map(|x| {
             let position = cgmath::Vector3 {
-                x: (x * frame) as f32 / 300.0,
-                y: (x * frame) as f32 / 300.0,
-                z: (x * frame) as f32 / 300.0,
+                x: (x * frame) as f32 / 800.0,
+                y: (x * frame) as f32 / 800.0,
+                z: (x * frame) as f32 / 1200.0,
             };
 
             let rotation = if position.is_zero() {
