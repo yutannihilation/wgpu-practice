@@ -370,7 +370,7 @@ impl State {
 
         let mx_total = generate_matrix(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
-            self.frame as f32 / 200.0,
+            self.frame as f32 / 50.0,
         );
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = self
@@ -618,7 +618,11 @@ fn create_render_pipeline(
 fn generate_matrix(aspect_ratio: f32, frame: f32) -> cgmath::Matrix4<f32> {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 10.0);
     let mx_view = cgmath::Matrix4::look_at(
-        cgmath::Point3::new(1.5f32 * frame.sin(), -5.0 * frame.cos(), 3.0),
+        cgmath::Point3::new(
+            5.0f32 * frame.sin(),
+            -5.0 * frame.cos(),
+            4.0 * (0.2 * frame - 0.1).sin(),
+        ),
         cgmath::Point3::new(0f32, 0.0, 0.0),
         cgmath::Vector3::unit_z(),
     );
