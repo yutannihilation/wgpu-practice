@@ -3,6 +3,8 @@
 layout(location = 0) in vec4 a_position;
 layout(location = 1) in vec3 a_normal;
 
+layout(location = 2) in mat4 a_model;
+
 layout(location = 0) out vec3 v_position;
 layout(location = 1) out vec3 v_normal;
 
@@ -15,5 +17,5 @@ void main() {
 
     v_position = a_position.xyz;
 
-    gl_Position = u_Transform * a_position;
+    gl_Position = u_Transform * a_model * a_position;
 }

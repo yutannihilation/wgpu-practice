@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use cgmath::prelude::*;
+
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -112,6 +114,30 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
+// The original code is https://sotrh.github.io/learn-wgpu/beginner/tutorial7-instancing/#another-better-way-storage-buffers
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: cgmath::Matrix4::from_translation(self.position)
+                * cgmath::Matrix4::from(self.rotation),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct InstanceRaw {
+    model: cgmath::Matrix4<f32>,
+}
+
+unsafe impl bytemuck::Pod for InstanceRaw {}
+unsafe impl bytemuck::Zeroable for InstanceRaw {}
+
 // main.rs
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -137,6 +163,7 @@ struct State {
     staging_texture: wgpu::Texture,
 
     vertex_buf: wgpu::Buffer,
+    instance_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
 
@@ -246,6 +273,44 @@ impl State {
             stencil_write_mask: 0,
         };
 
+        // Instances ----------------------------------------------------------------------
+
+        // make a 10 by 10 grid of objects
+        let instances: Vec<Instance> = (0..2)
+            .flat_map(|z| {
+                (0..2).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: (x * 2) as f32,
+                        y: 0.0,
+                        z: (z * 2) as f32,
+                    };
+
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can effect scale if they're not create correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(
+                            position.clone().normalize(),
+                            cgmath::Deg(45.0),
+                        )
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsage::VERTEX,
+            label: None,
+        });
+
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
             position: (3.0, 3.0, 3.0, 1.0).into(),
@@ -289,12 +354,28 @@ impl State {
                 push_constant_ranges: Borrowed(&[]),
             });
 
+        let vertex_attrs_vertex = wgpu::vertex_attr_array![0 => Float4, 1 => Float3];
+        let vertex_attrs_instance =
+            wgpu::vertex_attr_array![2 => Float4, 3 => Float4, 4 => Float4, 5 => Float4];
+        let vertex_buffers = [
+            wgpu::VertexBufferDescriptor {
+                stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: Borrowed(&vertex_attrs_vertex),
+            },
+            wgpu::VertexBufferDescriptor {
+                stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Instance,
+                attributes: Borrowed(&vertex_attrs_instance),
+            },
+        ];
+
         let light_render_pipeline = create_render_pipeline(
             &device,
             &light_render_pipeline_layout,
             &device.create_shader_module(wgpu::include_spirv!("shaders/light.vert.spv")),
             &device.create_shader_module(wgpu::include_spirv!("shaders/light.frag.spv")),
-            &wgpu::vertex_attr_array![0 => Float4, 1 => Float3],
+            &vertex_buffers,
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
             Some(depth_stencil_state.clone()),
@@ -313,7 +394,7 @@ impl State {
             &render_pipeline_layout,
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.vert.spv")),
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
-            &wgpu::vertex_attr_array![0 => Float4, 1 => Float3],
+            &vertex_buffers,
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
             Some(depth_stencil_state.clone()),
@@ -357,6 +438,7 @@ impl State {
             staging_texture,
 
             vertex_buf,
+            instance_buf,
             index_buf,
             index_count: index_data.len(),
 
@@ -511,13 +593,13 @@ impl State {
             });
 
             // draw light
-            render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-            render_pass.set_index_buffer(self.index_buf.slice(..));
-            render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            // render_pass.set_pipeline(&self.light_render_pipeline);
+            // render_pass.set_bind_group(0, &bind_group, &[]);
+            // render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+            // render_pass.set_index_buffer(self.index_buf.slice(..));
+            // render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
 
-            render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
+            // render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
 
             // draw cube
             render_pass.set_pipeline(&self.render_pipeline);
@@ -525,8 +607,9 @@ impl State {
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buf.slice(..));
 
-            render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
+            render_pass.draw_indexed(0..(self.index_count as u32), 0, 1..2);
         }
 
         encoder.copy_texture_to_buffer(
@@ -664,7 +747,7 @@ fn create_render_pipeline(
     pipeline_layout: &wgpu::PipelineLayout,
     vs_mod: &wgpu::ShaderModule,
     fs_mod: &wgpu::ShaderModule,
-    attr_array: &[wgpu::VertexAttributeDescriptor],
+    vertex_buffers: &[wgpu::VertexBufferDescriptor],
     sample_count: u32,
     formats: Vec<wgpu::TextureFormat>,
     depth_stencil_state: Option<wgpu::DepthStencilStateDescriptor>,
@@ -700,11 +783,7 @@ fn create_render_pipeline(
         depth_stencil_state: depth_stencil_state,
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: Borrowed(&[wgpu::VertexBufferDescriptor {
-                stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: Borrowed(attr_array),
-            }]),
+            vertex_buffers: Borrowed(vertex_buffers),
         },
         sample_count: sample_count,
         sample_mask: !0,
