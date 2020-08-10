@@ -9,7 +9,8 @@ layout(location = 0) out vec3 v_position;
 layout(location = 1) out vec3 v_normal;
 
 layout(set = 0, binding = 0) uniform Locals {
-    mat4 u_Transform;
+    vec3 u_view_position;
+    mat4 u_view_proj;
 };
 
 void main() {
@@ -21,5 +22,5 @@ void main() {
     vec4 model_space = a_model * a_position;
     v_position = model_space.xyz;
 
-    gl_Position = u_Transform * model_space;
+    gl_Position = u_view_proj * model_space;
 }

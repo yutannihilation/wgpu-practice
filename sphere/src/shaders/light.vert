@@ -5,7 +5,8 @@ layout(location = 0) in vec4 a_position;
 layout(location = 0) out vec3 v_color;
 
 layout(set = 0, binding = 0)
-uniform Uniforms {
+uniform Locals {
+    vec3 u_view_position;
     mat4 u_view_proj;
 };
 

@@ -140,6 +140,36 @@ struct InstanceRaw {
 unsafe impl bytemuck::Pod for InstanceRaw {}
 unsafe impl bytemuck::Zeroable for InstanceRaw {}
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Uniforms {
+    view_position: cgmath::Vector4<f32>,
+    view_proj: cgmath::Matrix4<f32>,
+}
+//If we want to use bytemuck, we must first implement these two traits
+unsafe impl bytemuck::Zeroable for Uniforms {}
+unsafe impl bytemuck::Pod for Uniforms {}
+
+fn generate_vp_uniforms(aspect_ratio: f32, frame: f32) -> Uniforms {
+    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
+
+    let eye = cgmath::Point3::new(
+        10.0f32 * frame.sin(),
+        -10.0 * frame.cos(),
+        4.0 * (0.2 * frame - 0.1).sin(),
+    );
+    let mx_view = cgmath::Matrix4::look_at(
+        eye,
+        cgmath::Point3::new(0f32, 0.0, 0.0),
+        cgmath::Vector3::unit_z(),
+    );
+
+    Uniforms {
+        view_position: eye.to_homogeneous(),
+        view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
+    }
+}
+
 // main.rs
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -257,7 +287,7 @@ impl State {
             label: None,
             entries: Borrowed(&[wgpu::BindGroupLayoutEntry::new(
                 0,
-                wgpu::ShaderStage::VERTEX,
+                wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
                 wgpu::BindingType::UniformBuffer {
                     dynamic: false,
                     min_binding_size: wgpu::BufferSize::new(64),
@@ -502,16 +532,15 @@ impl State {
 
         let depth_texture_view = self.depth_texture.create_default_view();
 
-        let mx_total = generate_matrix(
+        let vp_uniforms = generate_vp_uniforms(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
             self.frame as f32 / 500.0,
         );
-        let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Uniform Buffer"),
-                contents: bytemuck::cast_slice(mx_ref),
+                contents: bytemuck::cast_slice(&[vp_uniforms]),
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
 
@@ -795,21 +824,6 @@ fn create_render_pipeline(
         sample_mask: !0,
         alpha_to_coverage_enabled: false,
     })
-}
-
-fn generate_matrix(aspect_ratio: f32, frame: f32) -> cgmath::Matrix4<f32> {
-    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
-    let mx_view = cgmath::Matrix4::look_at(
-        cgmath::Point3::new(
-            10.0f32 * frame.sin(),
-            -10.0 * frame.cos(),
-            4.0 * (0.2 * frame - 0.1).sin(),
-        ),
-        cgmath::Point3::new(0f32, 0.0, 0.0),
-        cgmath::Vector3::unit_z(),
-    );
-    let mx_correction = OPENGL_TO_WGPU_MATRIX;
-    mx_correction * mx_projection * mx_view
 }
 
 fn create_png_texture_and_buffer(
