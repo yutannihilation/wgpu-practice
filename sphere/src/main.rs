@@ -54,6 +54,7 @@ impl BufferDimensions {
 struct Vertex {
     _pos: [f32; 4],
     _tex_coord: [f32; 2],
+    _normal: [f32; 3],
 }
 
 unsafe impl bytemuck::Pod for Vertex {}
@@ -63,6 +64,7 @@ fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
     Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
         _tex_coord: [tc[0] as f32, tc[1] as f32],
+        _normal: [10.0, 0.8, 0.8],
     }
 }
 
@@ -112,6 +114,18 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
+// main.rs
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct Light {
+    position: cgmath::Vector3<f32>,
+    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+    color: cgmath::Vector3<f32>,
+}
+
+unsafe impl bytemuck::Zeroable for Light {}
+unsafe impl bytemuck::Pod for Light {}
+
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -128,6 +142,9 @@ struct State {
     index_count: usize,
 
     depth_texture: wgpu::Texture,
+
+    light_buffer: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
 
     // Texture for MASS
     multisample_texture: wgpu::Texture,
@@ -219,9 +236,65 @@ impl State {
             )]),
         });
 
+        // Light ------------------------------------------------------------------------------------------------------------
+        let light = Light {
+            position: (7.0, 7.0, 3.0).into(),
+            color: (1.0, 1.0, 1.0).into(),
+        };
+        let light_size = std::mem::size_of_val(&light) as u64;
+
+        // We'll want to update our lights position, so we use COPY_DST
+        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&[light]),
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            label: None,
+        });
+
+        let light_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: Borrowed(&[wgpu::BindGroupLayoutEntry::new(
+                    0,
+                    wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    wgpu::BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: wgpu::BufferSize::new(light_size),
+                    },
+                )]),
+                label: None,
+            });
+
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &light_bind_group_layout,
+            entries: Borrowed(&[wgpu::BindGroupEntry::new(
+                0,
+                wgpu::BindingResource::Buffer(light_buffer.slice(..)),
+            )]),
+            label: None,
+        });
+
+        // // for debugging
+        // let light_render_pipeline_layout =
+        //     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        //         bind_group_layouts: Borrowed(&[]),
+        //         push_constant_ranges: Borrowed(&[]),
+        //     });
+
+        // let light_render_pipeline = create_render_pipeline(
+        //     &device,
+        //     &light_render_pipeline_layout,
+        //     &device.create_shader_module(wgpu::include_spirv!("shaders/shader.vert.spv")),
+        //     &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
+        //     &wgpu::vertex_attr_array![0 => Float4, 1 => Float2, 2 => Float3],
+        //     SAMPLE_COUNT,
+        //     vec![sc_desc.format],
+        //     None,
+        // );
+
+        // Render pipeline ------------------------------------------------------------------------------------------------------------
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: Borrowed(&[&bind_group_layout]),
+                bind_group_layouts: Borrowed(&[&bind_group_layout, &light_bind_group_layout]),
                 push_constant_ranges: Borrowed(&[]),
             });
 
@@ -230,7 +303,7 @@ impl State {
             &render_pipeline_layout,
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.vert.spv")),
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
-            &wgpu::vertex_attr_array![0 => Float4, 1 => Float2],
+            &wgpu::vertex_attr_array![0 => Float4, 1 => Float2, 2 => Float3],
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
             Some(wgpu::DepthStencilStateDescriptor {
@@ -289,6 +362,9 @@ impl State {
             multisample_png_texture,
 
             depth_texture,
+
+            light_buffer,
+            light_bind_group,
 
             png_texture,
             png_buffer,
@@ -391,6 +467,13 @@ impl State {
             label: None,
         });
 
+        let bg_color = wgpu::Color {
+            r: 0.0,
+            g: 0.22,
+            b: 0.3,
+            a: 1.0,
+        };
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: Borrowed(&[
@@ -398,7 +481,7 @@ impl State {
                         attachment: &multisample_texture_view,
                         resolve_target: Some(&frame.output.view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            load: wgpu::LoadOp::Clear(bg_color),
                             store: true,
                         },
                     },
@@ -406,7 +489,7 @@ impl State {
                         attachment: &multisample_png_texture_view,
                         resolve_target: Some(&png_texture_view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            load: wgpu::LoadOp::Clear(bg_color),
                             store: true,
                         },
                     },
@@ -426,6 +509,7 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
 
