@@ -53,53 +53,51 @@ impl BufferDimensions {
 #[derive(Clone, Copy)]
 struct Vertex {
     _pos: [f32; 4],
-    _tex_coord: [f32; 2],
     _normal: [f32; 3],
 }
 
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
 
-fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
+fn vertex(pos: [i8; 3], nor: [i8; 3]) -> Vertex {
     Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
-        _tex_coord: [tc[0] as f32, tc[1] as f32],
-        _normal: [10.0, 0.8, 0.8],
+        _normal: [nor[0] as f32, nor[1] as f32, nor[2] as f32],
     }
 }
 
 fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     let vertex_data = [
         // top (0, 0, 1)
-        vertex([-1, -1, 1], [0, 0]),
-        vertex([1, -1, 1], [1, 0]),
-        vertex([1, 1, 1], [1, 1]),
-        vertex([-1, 1, 1], [0, 1]),
+        vertex([-1, -1, 1], [0, 0, 1]),
+        vertex([1, -1, 1], [0, 0, 1]),
+        vertex([1, 1, 1], [0, 0, 1]),
+        vertex([-1, 1, 1], [0, 0, 1]),
         // bottom (0, 0, -1)
-        vertex([-1, 1, -1], [1, 0]),
-        vertex([1, 1, -1], [0, 0]),
-        vertex([1, -1, -1], [0, 1]),
-        vertex([-1, -1, -1], [1, 1]),
+        vertex([-1, 1, -1], [0, 0, -1]),
+        vertex([1, 1, -1], [0, 0, -1]),
+        vertex([1, -1, -1], [0, 0, -1]),
+        vertex([-1, -1, -1], [0, 0, -1]),
         // right (1, 0, 0)
-        vertex([1, -1, -1], [0, 0]),
-        vertex([1, 1, -1], [1, 0]),
-        vertex([1, 1, 1], [1, 1]),
-        vertex([1, -1, 1], [0, 1]),
+        vertex([1, -1, -1], [1, 0, 0]),
+        vertex([1, 1, -1], [1, 0, 0]),
+        vertex([1, 1, 1], [1, 0, 0]),
+        vertex([1, -1, 1], [1, 0, 0]),
         // left (-1, 0, 0)
-        vertex([-1, -1, 1], [1, 0]),
-        vertex([-1, 1, 1], [0, 0]),
-        vertex([-1, 1, -1], [0, 1]),
-        vertex([-1, -1, -1], [1, 1]),
+        vertex([-1, -1, 1], [-1, 0, 0]),
+        vertex([-1, 1, 1], [-1, 0, 0]),
+        vertex([-1, 1, -1], [-1, 0, 0]),
+        vertex([-1, -1, -1], [-1, 0, 0]),
         // front (0, 1, 0)
-        vertex([1, 1, -1], [1, 0]),
-        vertex([-1, 1, -1], [0, 0]),
-        vertex([-1, 1, 1], [0, 1]),
-        vertex([1, 1, 1], [1, 1]),
+        vertex([1, 1, -1], [0, 1, 0]),
+        vertex([-1, 1, -1], [0, 1, 0]),
+        vertex([-1, 1, 1], [0, 1, 0]),
+        vertex([1, 1, 1], [0, 1, 0]),
         // back (0, -1, 0)
-        vertex([1, -1, 1], [0, 0]),
-        vertex([-1, -1, 1], [1, 0]),
-        vertex([-1, -1, -1], [1, 1]),
-        vertex([1, -1, -1], [0, 1]),
+        vertex([1, -1, 1], [0, -1, 0]),
+        vertex([-1, -1, 1], [0, -1, 0]),
+        vertex([-1, -1, -1], [0, -1, 0]),
+        vertex([1, -1, -1], [0, -1, 0]),
     ];
 
     let index_data: &[u16] = &[
@@ -303,7 +301,7 @@ impl State {
             &render_pipeline_layout,
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.vert.spv")),
             &device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv")),
-            &wgpu::vertex_attr_array![0 => Float4, 1 => Float2, 2 => Float3],
+            &wgpu::vertex_attr_array![0 => Float4, 1 => Float3],
             SAMPLE_COUNT,
             vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
             Some(wgpu::DepthStencilStateDescriptor {
@@ -413,7 +411,7 @@ impl State {
 
     fn update(&mut self) {
         self.frame += 1;
-        if self.record & (self.frame > 1000) {
+        if self.record && (self.frame >= 1000) {
             println!("End recording");
             self.frame = 0;
             self.record = false;
