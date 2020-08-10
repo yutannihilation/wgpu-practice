@@ -277,33 +277,10 @@ impl State {
 
         // Instances ----------------------------------------------------------------------
 
-        let instances: Vec<Instance> = (0..NUM_INSTANCES)
-            .map(|x| {
-                let position = cgmath::Vector3 {
-                    x: x as f32,
-                    y: x as f32,
-                    z: x as f32,
-                };
-
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can effect scale if they're not create correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(
-                        position.clone().normalize(),
-                        cgmath::Deg(20.0 * (x as f32)),
-                    )
-                };
-
-                Instance { position, rotation }
-            })
-            .collect();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_data = create_instance_date(0);
         let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsage::VERTEX,
+            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
             label: None,
         });
 
@@ -548,6 +525,12 @@ impl State {
             label: None,
         });
 
+        self.queue.write_buffer(
+            &self.instance_buf,
+            0,
+            bytemuck::cast_slice(&create_instance_date(self.frame)),
+        );
+
         let bg_color = wgpu::Color {
             r: 0.0,
             g: 0.22,
@@ -644,6 +627,33 @@ impl State {
             ))
         }
     }
+}
+
+fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
+    let instances: Vec<Instance> = (0..NUM_INSTANCES)
+        .map(|x| {
+            let position = cgmath::Vector3 {
+                x: (x * frame) as f32 / 300.0,
+                y: (x * frame) as f32 / 300.0,
+                z: (x * frame) as f32 / 300.0,
+            };
+
+            let rotation = if position.is_zero() {
+                // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                // as Quaternions can effect scale if they're not create correctly
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+            } else {
+                cgmath::Quaternion::from_axis_angle(
+                    position.clone().normalize(),
+                    cgmath::Deg(20.0 * ((x * frame) as f32 / 100.0)),
+                )
+            };
+
+            Instance { position, rotation }
+        })
+        .collect();
+
+    instances.iter().map(Instance::to_raw).collect::<Vec<_>>()
 }
 
 fn create_texture(
