@@ -1,4 +1,4 @@
-shpere
+sphere
 ------
 
 ![](out.gif)
