@@ -722,6 +722,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mesh"
+version = "0.1.0"
+dependencies = [
+ "cgmath",
+]
+
+[[package]]
 name = "metal"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1540,7 +1547,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "0.5.0"
-source = "git+https://github.com/gfx-rs/wgpu-rs#3069da10043c46a2b184fb57ad3760a5799d3f9b"
+source = "git+https://github.com/gfx-rs/wgpu-rs#b0e1f055c693cee9075a04f007978ab9da1dc54b"
 dependencies = [
  "arrayvec",
  "futures",
@@ -1562,7 +1569,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "0.5.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=8057acf120f9944056a6b5de6cf326f18ae7671d#8057acf120f9944056a6b5de6cf326f18ae7671d"
+source = "git+https://github.com/gfx-rs/wgpu?rev=7e8b51b4286bd9452567eb1a56edb8e9b7c7f684#7e8b51b4286bd9452567eb1a56edb8e9b7c7f684"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -1588,7 +1595,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "0.5.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=8057acf120f9944056a6b5de6cf326f18ae7671d#8057acf120f9944056a6b5de6cf326f18ae7671d"
+source = "git+https://github.com/gfx-rs/wgpu?rev=7e8b51b4286bd9452567eb1a56edb8e9b7c7f684#7e8b51b4286bd9452567eb1a56edb8e9b7c7f684"
 dependencies = [
  "bitflags",
 ]
