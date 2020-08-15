@@ -80,48 +80,81 @@ impl Face {
     }
 }
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct IntVec3(i32, i32, i32);
 
 impl IntVec3 {
-    fn new(v: &Vec3) -> Self {
+    fn new(v: Vec3) -> Self {
         Self(v.x() as i32, v.y() as i32, v.z() as i32)
     }
 }
 
 #[derive(Debug)]
 struct Polygon {
-    faces: Vec<Face>,
+    points: Vec<Vec3>,
+    face_indices: Vec<Vec<usize>>,
+    edge_indices: Vec<Vec<[usize; 2]>>,
 }
 
-impl Polygon {
-    fn cube() -> Self {
-        let faces = vec![
-            Face::new_cube_face(Vec3::one(), Vec3::unit_x()),
-            Face::new_cube_face(Vec3::one(), Vec3::unit_y()),
-            Face::new_cube_face(Vec3::one(), Vec3::unit_z()),
-            Face::new_cube_face(-Vec3::one(), Vec3::unit_x()),
-            Face::new_cube_face(-Vec3::one(), Vec3::unit_y()),
-            Face::new_cube_face(-Vec3::one(), Vec3::unit_z()),
-        ];
+fn calculate_initial_cube() -> Polygon {
+    let directions = [1.0f32, -1.0];
+    let axes = [Vec3::unit_x(), Vec3::unit_y(), Vec3::unit_z()];
 
-        let mut points: HashSet<IntVec3> = HashSet::new();
-
-        faces.iter().for_each(|f| {
-            f.points.iter().for_each(|p| {
-                let p_ = IntVec3::new(p);
-                points.insert(p_);
+    let faces: Vec<Vec<Vec3>> = directions
+        .iter()
+        .flat_map(|&dir| {
+            axes.iter().map(move |&axis| {
+                let base = dir * Vec3::one();
+                vec![
+                    base.clone(),
+                    Quat::from_axis_angle(axis, 90.0_f32.to_radians()) * base,
+                    Quat::from_axis_angle(axis, 180.0_f32.to_radians()) * base,
+                    Quat::from_axis_angle(axis, 270.0_f32.to_radians()) * base,
+                ]
             })
-        });
+        })
+        .collect();
 
-        println!("{:#?}", points);
-        println!("{:#?}", points.len());
+    let mut faces_int: Vec<Vec<IntVec3>> = Vec::new();
+    let mut points = Vec::new();
+    let mut points_set = HashSet::new();
 
-        Polygon { faces }
+    for f in faces.iter() {
+        let mut faces_int_inner: Vec<IntVec3> = Vec::new();
+        for &v in f.iter() {
+            points.push(v);
+            let p = IntVec3::new(v);
+            faces_int_inner.push(p.clone());
+            points_set.insert(p);
+        }
+        faces_int.push(faces_int_inner);
     }
 
-    fn triangulate(&self) -> Vec<Triangle> {
-        self.faces.iter().flat_map(|f| f.triangulate()).collect()
+    let mut points_int: Vec<IntVec3> = points_set.into_iter().collect();
+
+    let mut face_indices: Vec<Vec<usize>> = Vec::new();
+    let mut edge_indices: Vec<Vec<[usize; 2]>> = Vec::new();
+
+    for f in faces_int.iter() {
+        let mut face_indices_inner: Vec<usize> = Vec::new();
+        for v in f.iter() {
+            let idx = points_int.iter().position(|p| *p == *v).unwrap();
+            face_indices_inner.push(idx);
+        }
+
+        face_indices.push(face_indices_inner.clone());
+
+        let len = face_indices_inner.len();
+        let edge_indices_inner: Vec<[usize; 2]> = (0..len)
+            .map(|i| [face_indices_inner[i], face_indices_inner[(i + 1) % len]])
+            .collect();
+        edge_indices.push(edge_indices_inner);
+    }
+
+    Polygon {
+        points,
+        face_indices,
+        edge_indices,
     }
 }
 
@@ -132,6 +165,5 @@ fn main() {
     println!("{:#?}", face.face_point());
     println!("{:#?}", face.edges());
     println!("{:#?}", face.triangulate());
-
-    Polygon::cube();
+    println!("{:#?}", calculate_initial_cube());
 }
