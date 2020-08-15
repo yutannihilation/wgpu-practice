@@ -588,6 +588,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a09830d3a54df0e02f67340598635e75446cb87dc0d8d734f3c9742e02cc04f"
+
+[[package]]
 name = "hibitset"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -725,7 +731,7 @@ dependencies = [
 name = "mesh"
 version = "0.1.0"
 dependencies = [
- "cgmath",
+ "glam",
 ]
 
 [[package]]
