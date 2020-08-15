@@ -13,3 +13,4 @@ bytemuck = "1.2.0"
 futures = "0.3.5"
 png = "0.16.7"
 cgmath = "0.17.0"
+glam = { version = "0.9.3", feature = ["mint"]}

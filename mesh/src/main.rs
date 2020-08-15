@@ -1,5 +1,7 @@
 use glam::{Quat, Vec3};
+use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug)]
 struct Triangle {
@@ -12,7 +14,10 @@ impl Triangle {
         let v0 = p1 - p0;
         let v1 = p2 - p0;
 
+        // Calculate the normal vector
         let normal_unnormalized = v0.cross(v1);
+
+        // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
         let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
             -normal_unnormalized.normalize()
         } else {
@@ -46,11 +51,10 @@ impl Face {
     fn new_cube_face(base: Vec3, axis: Vec3) -> Self {
         let mut points = VecDeque::new();
 
-        // round numbers so that the nodes matches
-        points.push_back(base.round());
-        points.push_back((Quat::from_axis_angle(axis, 90.0_f32.to_radians()) * base).round());
-        points.push_back((Quat::from_axis_angle(axis, 180.0_f32.to_radians()) * base).round());
-        points.push_back((Quat::from_axis_angle(axis, 270.0_f32.to_radians()) * base).round());
+        points.push_back(base);
+        points.push_back(Quat::from_axis_angle(axis, 90.0_f32.to_radians()) * base);
+        points.push_back(Quat::from_axis_angle(axis, 180.0_f32.to_radians()) * base);
+        points.push_back(Quat::from_axis_angle(axis, 270.0_f32.to_radians()) * base);
 
         Face { points: points }
     }
@@ -76,6 +80,15 @@ impl Face {
     }
 }
 
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct IntVec3(i32, i32, i32);
+
+impl IntVec3 {
+    fn new(v: &Vec3) -> Self {
+        Self(v.x() as i32, v.y() as i32, v.z() as i32)
+    }
+}
+
 #[derive(Debug)]
 struct Polygon {
     faces: Vec<Face>,
@@ -83,16 +96,28 @@ struct Polygon {
 
 impl Polygon {
     fn cube() -> Self {
-        Polygon {
-            faces: vec![
-                Face::new_cube_face(Vec3::one(), glam::Vec3::unit_x()),
-                Face::new_cube_face(Vec3::one(), glam::Vec3::unit_y()),
-                Face::new_cube_face(Vec3::one(), glam::Vec3::unit_z()),
-                Face::new_cube_face(-Vec3::one(), glam::Vec3::unit_x()),
-                Face::new_cube_face(-Vec3::one(), glam::Vec3::unit_y()),
-                Face::new_cube_face(-Vec3::one(), glam::Vec3::unit_z()),
-            ],
-        }
+        let faces = vec![
+            Face::new_cube_face(Vec3::one(), Vec3::unit_x()),
+            Face::new_cube_face(Vec3::one(), Vec3::unit_y()),
+            Face::new_cube_face(Vec3::one(), Vec3::unit_z()),
+            Face::new_cube_face(-Vec3::one(), Vec3::unit_x()),
+            Face::new_cube_face(-Vec3::one(), Vec3::unit_y()),
+            Face::new_cube_face(-Vec3::one(), Vec3::unit_z()),
+        ];
+
+        let mut points: HashSet<IntVec3> = HashSet::new();
+
+        faces.iter().for_each(|f| {
+            f.points.iter().for_each(|p| {
+                let p_ = IntVec3::new(p);
+                points.insert(p_);
+            })
+        });
+
+        println!("{:#?}", points);
+        println!("{:#?}", points.len());
+
+        Polygon { faces }
     }
 
     fn triangulate(&self) -> Vec<Triangle> {
@@ -108,5 +133,5 @@ fn main() {
     println!("{:#?}", face.edges());
     println!("{:#?}", face.triangulate());
 
-    println!("{:#?}", Polygon::cube().triangulate());
+    Polygon::cube();
 }
