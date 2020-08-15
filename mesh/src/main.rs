@@ -3,6 +3,17 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 
+// Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct Vertex {
+    _pos: [f32; 4],
+    _normal: [f32; 3],
+}
+
+// unsafe impl bytemuck::Pod for Vertex {}
+// unsafe impl bytemuck::Zeroable for Vertex {}
+
 #[derive(Debug)]
 struct Triangle {
     points: [Vec3; 3],
@@ -87,19 +98,60 @@ struct Polygon {
 }
 
 impl Polygon {
-    fn triangulate(&self) -> (&Vec<Vec3>, Vec<u16>) {
+    fn triangulate(&self) -> (Vec<Vertex>, Vec<u16>) {
         let mut indices: Vec<u16> = Vec::new();
+        // fill normals
+        let mut normals: Vec<Vec3> = Vec::with_capacity(self.points.len());
+        (0..self.points.len()).for_each(|_| normals.push(Vec3::zero()));
 
         for f in self.face_indices.iter() {
             let len = f.len();
+
+            // 1st point is fixed
+            let i0 = f[0];
+            let p0 = self.points[i0];
             for i in 1..(len - 1) {
-                indices.push(f[0] as u16);
-                indices.push(f[i] as u16);
-                indices.push(f[(i + 1) % len] as u16);
+                // choose indices
+                let i1 = f[i];
+                let i2 = f[(i + 1) % len];
+
+                indices.push(i0 as u16);
+                indices.push(i1 as u16);
+                indices.push(i2 as u16);
+
+                let p1 = self.points[i1];
+                let p2 = self.points[i2];
+
+                let v0 = p1 - p0;
+                let v1 = p2 - p0;
+
+                // Calculate the normal vector
+                let normal_unnormalized = v0.cross(v1);
+
+                // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
+                let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
+                    -normal_unnormalized.normalize()
+                } else {
+                    normal_unnormalized.normalize()
+                };
+
+                normals[i0] = normal;
+                normals[i1] = normal;
+                normals[i2] = normal;
             }
         }
 
-        (&self.points, indices)
+        let vertices = (0..self.points.len())
+            .map(|i| {
+                let p = self.points[i];
+                let n = normals[i];
+                Vertex {
+                    _pos: [p.x(), p.y(), p.z(), 1.0],
+                    _normal: [n.x(), n.y(), n.z()],
+                }
+            })
+            .collect();
+        (vertices, indices)
     }
 }
 

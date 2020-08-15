@@ -13,6 +13,7 @@ use futures::executor::block_on;
 use wgpu::util::DeviceExt;
 
 mod mesh;
+use mesh::Vertex;
 
 // sample count for MSAA
 const SAMPLE_COUNT: u32 = 4;
@@ -49,70 +50,6 @@ impl BufferDimensions {
             padded_bytes_per_row,
         }
     }
-}
-
-// Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Vertex {
-    _pos: [f32; 4],
-    _normal: [f32; 3],
-}
-
-unsafe impl bytemuck::Pod for Vertex {}
-unsafe impl bytemuck::Zeroable for Vertex {}
-
-fn vertex(pos: [i8; 3], nor: [i8; 3]) -> Vertex {
-    Vertex {
-        _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
-        _normal: [nor[0] as f32, nor[1] as f32, nor[2] as f32],
-    }
-}
-
-fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
-    let vertex_data = [
-        // top (0, 0, 1)
-        vertex([-1, -1, 1], [0, 0, 1]),
-        vertex([1, -1, 1], [0, 0, 1]),
-        vertex([1, 1, 1], [0, 0, 1]),
-        vertex([-1, 1, 1], [0, 0, 1]),
-        // bottom (0, 0, -1)
-        vertex([-1, 1, -1], [0, 0, -1]),
-        vertex([1, 1, -1], [0, 0, -1]),
-        vertex([1, -1, -1], [0, 0, -1]),
-        vertex([-1, -1, -1], [0, 0, -1]),
-        // right (1, 0, 0)
-        vertex([1, -1, -1], [1, 0, 0]),
-        vertex([1, 1, -1], [1, 0, 0]),
-        vertex([1, 1, 1], [1, 0, 0]),
-        vertex([1, -1, 1], [1, 0, 0]),
-        // left (-1, 0, 0)
-        vertex([-1, -1, 1], [-1, 0, 0]),
-        vertex([-1, 1, 1], [-1, 0, 0]),
-        vertex([-1, 1, -1], [-1, 0, 0]),
-        vertex([-1, -1, -1], [-1, 0, 0]),
-        // front (0, 1, 0)
-        vertex([1, 1, -1], [0, 1, 0]),
-        vertex([-1, 1, -1], [0, 1, 0]),
-        vertex([-1, 1, 1], [0, 1, 0]),
-        vertex([1, 1, 1], [0, 1, 0]),
-        // back (0, -1, 0)
-        vertex([1, -1, 1], [0, -1, 0]),
-        vertex([-1, -1, 1], [0, -1, 0]),
-        vertex([-1, -1, -1], [0, -1, 0]),
-        vertex([1, -1, -1], [0, -1, 0]),
-    ];
-
-    let index_data: &[u16] = &[
-        0, 1, 2, 2, 3, 0, // top
-        4, 5, 6, 6, 7, 4, // bottom
-        8, 9, 10, 10, 11, 8, // right
-        12, 13, 14, 14, 15, 12, // left
-        16, 17, 18, 18, 19, 16, // front
-        20, 21, 22, 22, 23, 20, // back
-    ];
-
-    (vertex_data.to_vec(), index_data.to_vec())
 }
 
 const NUM_INSTANCES: u32 = 10;
@@ -270,7 +207,7 @@ impl State {
 
         // Create the vertex and index buffers
         let vertex_size = std::mem::size_of::<Vertex>();
-        let (vertex_data, index_data) = create_vertices();
+        let (vertex_data, index_data) = mesh::calculate_initial_cube().triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
