@@ -48,17 +48,6 @@ struct Face {
 }
 
 impl Face {
-    fn new_cube_face(base: Vec3, axis: Vec3) -> Self {
-        let mut points = VecDeque::new();
-
-        points.push_back(base);
-        points.push_back(Quat::from_axis_angle(axis, 90.0_f32.to_radians()) * base);
-        points.push_back(Quat::from_axis_angle(axis, 180.0_f32.to_radians()) * base);
-        points.push_back(Quat::from_axis_angle(axis, 270.0_f32.to_radians()) * base);
-
-        Face { points: points }
-    }
-
     fn face_point(&self) -> Vec3 {
         self.points.iter().fold(Vec3::zero(), |sum, p| sum + *p) / self.points.len() as f32
     }
@@ -80,6 +69,7 @@ impl Face {
     }
 }
 
+// Since Vec3 (or float generally) doesn't support Hash, we need an integer version
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct IntVec3(i32, i32, i32);
 
@@ -94,6 +84,23 @@ struct Polygon {
     points: Vec<Vec3>,
     face_indices: Vec<Vec<usize>>,
     edge_indices: Vec<Vec<[usize; 2]>>,
+}
+
+impl Polygon {
+    fn triangulate(&self) -> (&Vec<Vec3>, Vec<u16>) {
+        let mut indices: Vec<u16> = Vec::new();
+
+        for f in self.face_indices.iter() {
+            let len = f.len();
+            for i in 1..(len - 1) {
+                indices.push(f[0] as u16);
+                indices.push(f[i] as u16);
+                indices.push(f[(i + 1) % len] as u16);
+            }
+        }
+
+        (&self.points, indices)
+    }
 }
 
 fn calculate_initial_cube() -> Polygon {
@@ -159,11 +166,5 @@ fn calculate_initial_cube() -> Polygon {
 }
 
 fn main() {
-    let face = Face::new_cube_face(Vec3::one(), glam::Vec3::unit_z());
-
-    println!("{:#?}", face);
-    println!("{:#?}", face.face_point());
-    println!("{:#?}", face.edges());
-    println!("{:#?}", face.triangulate());
-    println!("{:#?}", calculate_initial_cube());
+    println!("{:#?}", calculate_initial_cube().triangulate());
 }
