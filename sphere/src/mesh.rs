@@ -1,6 +1,5 @@
 use glam::{Quat, Vec3};
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::hash::Hash;
 
 // Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
@@ -13,72 +12,6 @@ pub struct Vertex {
 
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
-
-#[derive(Debug)]
-struct Triangle {
-    points: [Vec3; 3],
-    normal: Vec3,
-}
-
-impl Triangle {
-    fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
-        let v0 = p1 - p0;
-        let v1 = p2 - p0;
-
-        // Calculate the normal vector
-        let normal_unnormalized = v0.cross(v1);
-
-        // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
-        let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
-            -normal_unnormalized.normalize()
-        } else {
-            normal_unnormalized.normalize()
-        };
-
-        Self {
-            points: [p0, p1, p2],
-            normal,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Edge {
-    points: [Vec3; 2],
-}
-
-impl Edge {
-    fn edge_point(&self) -> Vec3 {
-        (self.points[0] + self.points[1]) / 2.0
-    }
-}
-
-#[derive(Debug)]
-struct Face {
-    points: VecDeque<Vec3>,
-}
-
-impl Face {
-    fn face_point(&self) -> Vec3 {
-        self.points.iter().fold(Vec3::zero(), |sum, p| sum + *p) / self.points.len() as f32
-    }
-
-    fn edges(&self) -> Vec<Edge> {
-        let len = self.points.len();
-        (0..len)
-            .map(|i| Edge {
-                points: [self.points[i], self.points[(i + 1) % len]],
-            })
-            .collect()
-    }
-
-    fn triangulate(&self) -> Vec<Triangle> {
-        let len = self.points.len();
-        (1..(len - 1))
-            .map(|i| Triangle::new(self.points[0], self.points[i], self.points[(i + 1) % len]))
-            .collect()
-    }
-}
 
 // Since Vec3 (or float generally) doesn't support Hash, we need an integer version
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -98,7 +31,7 @@ impl IntVec3 {
 pub struct Polygon {
     points: Vec<Vec3>,
     face_indices: Vec<Vec<usize>>,
-    edge_indices: Vec<Vec<[usize; 2]>>,
+    edge_indices: Vec<[usize; 2]>,
 }
 
 impl Polygon {
@@ -151,6 +84,120 @@ impl Polygon {
 
         (vertices, indices)
     }
+
+    // 1. Insert edge points before and after the specified point.
+    // 2. Replace the specified point with the face point (on each face).
+    // 3. Create a new faces using new points.
+    pub fn subdevide(&mut self, point_idx: usize) {
+        let affected_edges = self.neiboring_edges(point_idx);
+        println!("affected edges: {:#?}", affected_edges);
+
+        // probably we can search on all the faces every time...?
+        let affected_faces = self.neiboring_faces(point_idx);
+
+        // 1. Insert edge points before and after the specified point.
+
+        for &edge_idx in affected_edges.iter() {
+            let edge = self.edge_indices[edge_idx];
+
+            // Calculate edge point and add it to the points list
+            let new_point_idx = self.points.len();
+            self.points.push(self.edge_point(edge_idx));
+
+            let point_idx_opposite = if edge[0] == point_idx {
+                edge[1]
+            } else {
+                edge[0]
+            };
+
+            for &face_idx in affected_faces.iter() {
+                let face = &mut self.face_indices[face_idx];
+                print!(
+                    "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
+                    face_idx, face, edge_idx, edge
+                );
+                let point_local_idx_opposite =
+                    face.iter().position(|&idx| idx == point_idx_opposite);
+                // Modify only on the face that contains both points of the edge
+                if point_local_idx_opposite.is_none() {
+                    println!("skip");
+                    continue;
+                }
+                let point_local_idx = face.iter().position(|&idx| idx == point_idx).unwrap();
+                let point_local_idx_opposite = point_local_idx_opposite.unwrap();
+
+                let idx_distance = (point_local_idx as i32 - point_local_idx_opposite as i32).abs();
+                // if the index is at the first and last, insert to the front
+                let pos = if idx_distance == (face.len() - 1) as i32 {
+                    0
+                } else {
+                    std::cmp::max(point_local_idx, point_local_idx_opposite)
+                };
+                face.insert(pos, new_point_idx);
+
+                // result
+                println!(" face {:?}", face);
+            }
+        }
+
+        // 2. Replace the specified point with the face point (on each face).
+
+        for &face_idx in affected_faces.iter() {
+            // Calculate face point and add it to the points list
+            let new_point_idx = self.points.len();
+            self.points.push(self.face_point(face_idx));
+
+            let face = &mut self.face_indices[face_idx];
+            print!(
+                "Replacing the point with face point of face {} ({:?}) -> ",
+                face_idx, face
+            );
+
+            face.iter_mut().for_each(|i| {
+                if *i == point_idx {
+                    *i = new_point_idx
+                }
+            });
+
+            // result
+            println!(" face {:?}", face);
+        }
+    }
+
+    // Return the indices of neiboring edges to the specified point
+    pub fn neiboring_edges(&self, point_idx: usize) -> Vec<usize> {
+        let mut result = Vec::new();
+
+        for (i, edge) in self.edge_indices.iter().enumerate() {
+            if edge[0] == point_idx || edge[1] == point_idx {
+                result.push(i);
+            }
+        }
+        result
+    }
+
+    // Return the indices of neiboring faces to the specified point
+    pub fn neiboring_faces(&self, point_idx: usize) -> Vec<usize> {
+        let mut result = Vec::new();
+
+        for (i, face) in self.face_indices.iter().enumerate() {
+            if face.iter().position(|&idx| idx == point_idx).is_some() {
+                result.push(i);
+            }
+        }
+
+        result
+    }
+
+    pub fn edge_point(&self, edge_idx: usize) -> Vec3 {
+        let e = &self.edge_indices[edge_idx];
+        (self.points[e[0]] + self.points[e[1]]) / 2.0
+    }
+
+    pub fn face_point(&self, face_idx: usize) -> Vec3 {
+        let f = &self.face_indices[face_idx];
+        f.iter().fold(Vec3::zero(), |sum, &i| sum + self.points[i]) / f.len() as f32
+    }
 }
 
 pub fn calculate_initial_cube() -> Polygon {
@@ -195,7 +242,7 @@ pub fn calculate_initial_cube() -> Polygon {
         .collect();
 
     let mut face_indices: Vec<Vec<usize>> = Vec::new();
-    let mut edge_indices: Vec<Vec<[usize; 2]>> = Vec::new();
+    let mut edge_indices: HashSet<[usize; 2]> = HashSet::new();
 
     for f in faces_int.iter() {
         let mut face_indices_inner: Vec<usize> = Vec::new();
@@ -207,15 +254,25 @@ pub fn calculate_initial_cube() -> Polygon {
         face_indices.push(face_indices_inner.clone());
 
         let len = face_indices_inner.len();
-        let edge_indices_inner: Vec<[usize; 2]> = (0..len)
-            .map(|i| [face_indices_inner[i], face_indices_inner[(i + 1) % len]])
-            .collect();
-        edge_indices.push(edge_indices_inner);
+        for i in 0..len {
+            let mut edge = [face_indices_inner[i], face_indices_inner[(i + 1) % len]];
+            edge.sort();
+            edge_indices.insert(edge);
+        }
     }
 
     Polygon {
         points,
         face_indices,
-        edge_indices,
+        edge_indices: edge_indices.into_iter().collect(),
     }
+}
+
+fn main() {
+    let mut cube = calculate_initial_cube();
+    println!("{:?}", cube.face_indices);
+    cube.subdevide(0);
+    println!("{:?}", cube.face_indices);
+    println!("{:#?}", cube.neiboring_edges(0));
+    println!("{:#?}", cube.neiboring_faces(0));
 }

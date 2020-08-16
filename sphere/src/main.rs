@@ -52,7 +52,7 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 10;
+const NUM_INSTANCES: u32 = 2;
 
 // The original code is https://sotrh.github.io/learn-wgpu/beginner/tutorial7-instancing/#another-better-way-storage-buffers
 struct Instance {
@@ -207,7 +207,9 @@ impl State {
 
         // Create the vertex and index buffers
         let vertex_size = std::mem::size_of::<Vertex>();
-        let (vertex_data, index_data) = mesh::calculate_initial_cube().triangulate();
+        let mut cube = mesh::calculate_initial_cube();
+        cube.subdevide(0);
+        let (vertex_data, index_data) = cube.triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
