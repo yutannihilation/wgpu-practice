@@ -98,6 +98,13 @@ impl Polygon {
         let affected_faces = self.neiboring_faces(point_idx);
         println!("affected faces: {:#?}", affected_faces);
 
+        // new face would be like this, starting from top-left and goes clockwise order
+        //
+        // e--c    c: new corner point
+        // |  |    e: edge point
+        // f--e    f: face point
+        let mut new_faces: Vec<Vec<usize>> = vec![vec![0 as usize; 4]; affected_faces.len()];
+
         // 1. Insert edge points before and after the specified point.
 
         for &edge_idx in affected_edges.iter() {
@@ -113,7 +120,7 @@ impl Polygon {
                 edge[0]
             };
 
-            for &face_idx in affected_faces.iter() {
+            for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
                 let face = &mut self.face_indices[face_idx];
                 print!(
                     "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
@@ -138,6 +145,14 @@ impl Polygon {
                 };
                 face.insert(pos, new_point_idx);
 
+                if pos == point_local_idx {
+                    // If the new point is inserted before the original point, it will be the first point of the new face
+                    new_faces[new_face_idx][0] = new_point_idx;
+                } else {
+                    // If the new point is inserted after the original point, it will be the third point of the new face
+                    new_faces[new_face_idx][2] = new_point_idx;
+                }
+
                 // result
                 println!(" face {:?}", face);
             }
@@ -150,7 +165,7 @@ impl Polygon {
 
         // 2. Replace the specified point with the face point (on each face).
 
-        for &face_idx in affected_faces.iter() {
+        for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
             // Calculate face point and add it to the points list
             let new_point_idx = self.points.len();
             self.points.push(self.face_point(face_idx));
@@ -167,9 +182,14 @@ impl Polygon {
                 }
             });
 
+            // The face point will be the last point of the new face
+            new_faces[new_face_idx][3] = new_point_idx;
+
             // result
             println!(" face {:?}", face);
         }
+
+        println!("Generated new_faces: {:?}", new_faces);
     }
 
     // Return the indices of neiboring edges to the specified point
