@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 glam = "0.9.3"
+bytemuck = "1.2.0"
