@@ -474,6 +474,7 @@ impl State {
                     contents: bytemuck::cast_slice(&index_data),
                     usage: wgpu::BufferUsage::INDEX,
                 });
+            self.index_count = index_data.len();
         }
     }
 
