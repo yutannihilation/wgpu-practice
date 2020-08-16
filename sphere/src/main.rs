@@ -209,7 +209,7 @@ impl State {
         // Create the vertex and index buffers
         let vertex_size = std::mem::size_of::<Vertex>();
         let mut cube = mesh::calculate_initial_cube();
-        cube.subdevide(1);
+        cube.subdivide();
         let (vertex_data, index_data) = cube.triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -456,7 +456,7 @@ impl State {
         }
 
         if self.frame % 100 == 0 {
-            self.cube.subdevide((self.frame / 100) as usize);
+            self.cube.subdivide();
             let (vertex_data, index_data) = self.cube.triangulate();
 
             self.vertex_buf = self

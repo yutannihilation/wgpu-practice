@@ -28,10 +28,27 @@ impl IntVec3 {
 }
 
 #[derive(Debug)]
+pub struct Neighborings {
+    point: usize,
+    edges: Vec<usize>,
+    faces: Vec<usize>,
+}
+
+#[derive(Debug)]
 pub struct Polygon {
+    // basic representation
     points: Vec<Vec3>,
     face_indices: Vec<Vec<usize>>,
     edge_indices: Vec<[usize; 2]>,
+
+    // pre-calculated points to do subdivision
+    face_points: Vec<Vec3>,
+    edge_midpoints: Vec<Vec3>,
+    edge_points: Vec<Vec3>,
+    new_corners: Vec<Vec3>,
+
+    // if the specified corner is in here, do subdivision
+    unsubdivided_corners: Vec<Neighborings>,
 }
 
 impl Polygon {
@@ -43,7 +60,7 @@ impl Polygon {
             // As all points belongs to the same surface, the normal should be the same.
             // Calculate a normal vector with arbitrary 3 points within the face for now.
             // (I might need to revisit here when I want to calculate the average of the
-            // neibouring surfaces...)
+            // neighboring surfaces...)
             let i0 = f[0];
             let p0 = self.points[i0];
             let p1 = self.points[f[1]];
@@ -85,25 +102,137 @@ impl Polygon {
         (vertices, indices)
     }
 
+    fn get_neighboring_edges_to_point(&self, idx: usize) -> Vec<usize> {
+        self.edge_indices
+            .iter()
+            .enumerate()
+            .filter(|(_, edge)| edge.contains(&idx))
+            .map(|(i, _)| i)
+            .collect()
+    }
+    fn get_neighboring_faces_to_point(&self, idx: usize) -> Vec<usize> {
+        self.face_indices
+            .iter()
+            .enumerate()
+            .filter(|(_, face)| face.contains(&idx))
+            .map(|(i, _)| i)
+            .collect()
+    }
+    fn get_neighboring_faces_to_edge(&self, idx0: usize, idx1: usize) -> Vec<usize> {
+        self.face_indices
+            .iter()
+            .enumerate()
+            // narrow to the faces that contains both points of the edge
+            .filter(|(_, face)| face.contains(&idx0))
+            .filter(|(_, face)| face.contains(&idx1))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub fn precalculate_subdivisions(&mut self) {
+        // Calculate face points
+        self.face_points = self
+            .face_indices
+            .iter()
+            .map(|face| {
+                face.iter()
+                    .fold(Vec3::zero(), |sum, &idx| sum + self.points[idx])
+                    / face.len() as f32
+            })
+            .collect();
+
+        // Calculate edge midpoints
+        self.edge_midpoints = self
+            .edge_indices
+            .iter()
+            .map(|edge| (self.points[edge[0]] + self.points[edge[1]]) / 2.0)
+            .collect();
+
+        // Calculate edge points
+        let mut edge_points: Vec<Vec3> = Vec::new();
+        for edge in self.edge_indices.iter() {
+            let neighboring_faces: Vec<usize> =
+                self.get_neighboring_faces_to_edge(edge[0], edge[1]);
+
+            let sum_of_face_points = neighboring_faces
+                .iter()
+                .fold(Vec3::zero(), |sum, &i| sum + self.face_points[i]);
+
+            let edge_point = (sum_of_face_points + self.points[edge[0]] + self.points[edge[1]])
+                / (neighboring_faces.len() + 2) as f32;
+
+            edge_points.push(edge_point);
+        }
+
+        self.edge_points = edge_points;
+
+        // Calculate new points
+        let mut new_corners: Vec<Vec3> = Vec::new();
+        let mut unsubdivided_corners: Vec<Neighborings> = Vec::new();
+
+        for (orig_corner_idx, orig_corner) in self.points.iter().enumerate() {
+            let neighboring_edges: Vec<usize> =
+                self.get_neighboring_edges_to_point(orig_corner_idx);
+
+            let neighboring_faces: Vec<usize> =
+                self.get_neighboring_faces_to_point(orig_corner_idx);
+
+            // Should be equal to neighboring_faces.len()
+            let n = neighboring_edges.len();
+
+            let avg_face_points = neighboring_faces
+                .iter()
+                .fold(Vec3::zero(), |sum, &i| sum + self.face_points[i])
+                / n as f32;
+
+            let avg_edge_midpoints = neighboring_edges
+                .iter()
+                .fold(Vec3::zero(), |sum, &i| sum + self.edge_midpoints[i])
+                / n as f32;
+
+            let new_corner =
+                (avg_face_points + 2.0 * avg_edge_midpoints + (n - 3) as f32 * *orig_corner)
+                    / n as f32;
+
+            new_corners.push(new_corner);
+            unsubdivided_corners.push(Neighborings {
+                point: orig_corner_idx,
+                edges: neighboring_edges,
+                faces: neighboring_faces,
+            })
+        }
+
+        self.new_corners = new_corners;
+        self.unsubdivided_corners = unsubdivided_corners;
+    }
+
     // An implementation of https://en.wikipedia.org/wiki/Catmull%E2%80%93Clark_subdivision_surface
     //
     // 1. Insert edge points before and after the specified point.
     // 2. Replace the specified point with the face point (on each face).
     // 3. Create a new faces using new points.
-    pub fn subdevide(&mut self, point_idx: usize) {
-        let affected_edges = &self.neiboring_edges(point_idx);
-        println!("affected edges: {:#?}", affected_edges);
+    pub fn subdivide(&mut self) {
+        if self.unsubdivided_corners.len() == 0 {
+            self.precalculate_subdivisions();
+        }
+        let point_idx = self.unsubdivided_corners.pop().unwrap();
+
+        self.subdivide_at(point_idx);
+    }
+
+    fn subdivide_at(&mut self, neighborings: Neighborings) {
+        println!("affected edges: {:#?}", neighborings.edges);
 
         // probably we can search on all the faces every time...?
-        let affected_faces = &self.neiboring_faces(point_idx);
-        println!("affected faces: {:#?}", affected_faces);
+        println!("affected faces: {:#?}", neighborings.faces);
 
         // new face would be like this, starting from top-left and goes clockwise order
         //
         // e--c    c: new corner point (this will be replaced with the original point, so use point_idx)
         // |  |    e: edge point
         // f--e    f: face point
-        let mut new_faces: Vec<Vec<usize>> = vec![vec![point_idx; 4]; affected_faces.len()];
+        let mut new_faces: Vec<Vec<usize>> =
+            vec![vec![neighborings.point; 4]; neighborings.faces.len()];
 
         // face index to point index
         let mut face_point_indices: HashMap<usize, usize> = HashMap::new();
@@ -112,13 +241,13 @@ impl Polygon {
 
         // 1. For each face, add a face point.
 
-        for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
+        for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
             // Calculate face point and add it to the points list
             let new_point_idx = self.points.len();
             self.points.push(self.face_point(face_idx));
 
             // Note that we cannot replace the actual face's point here yet since it will be
-            // used for detecting the neibouring faces when calculating edge points.
+            // used for detecting the neighboring faces when calculating edge points.
 
             // The face point will be the last point of the new face
             new_faces[new_face_idx][3] = new_point_idx;
@@ -127,28 +256,29 @@ impl Polygon {
 
         // 2. Insert edge points before and after the specified point.
 
-        for &edge_idx in affected_edges.iter() {
+        for &edge_idx in neighborings.edges.iter() {
             let edge = &self.edge_indices[edge_idx];
 
-            let point_idx_opposite = if edge[0] == point_idx {
+            let point_idx_opposite = if edge[0] == neighborings.point {
                 edge[1]
             } else {
                 edge[0]
             };
 
-            // Filter the faces neiboring to the edge (= contains both points of the edge)
-            let neiboring_faces: Vec<usize> = affected_faces
+            // Filter the faces neighboring to the edge (= contains both points of the edge)
+            let neighboring_faces: Vec<usize> = neighborings
+                .faces
                 .iter()
                 .map(|&i| i) // Not sure why I need to dereference here before filter...
                 .filter(|&f| self.face_indices[f].contains(&point_idx_opposite))
                 .collect();
 
-            let sum_of_face_points = neiboring_faces.iter().fold(Vec3::zero(), |sum, &i| {
+            let sum_of_face_points = neighboring_faces.iter().fold(Vec3::zero(), |sum, &i| {
                 sum + self.points[face_point_indices[&i]]
             });
 
             let edge_point = (sum_of_face_points + self.points[edge[0]] + self.points[edge[1]])
-                / (neiboring_faces.len() + 2) as f32;
+                / (neighboring_faces.len() + 2) as f32;
 
             let new_point_idx = self.points.len();
             self.points.push(edge_point);
@@ -156,7 +286,7 @@ impl Polygon {
             // Since the edge will be modified in the next step, preserve the edge midpoints to use later
             sum_edge_midpoints += self.edge_midpoint(edge_idx);
 
-            for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
+            for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
                 let face = &mut self.face_indices[face_idx];
                 print!(
                     "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
@@ -169,7 +299,10 @@ impl Polygon {
                     println!("skip");
                     continue;
                 }
-                let point_local_idx = face.iter().position(|&idx| idx == point_idx).unwrap();
+                let point_local_idx = face
+                    .iter()
+                    .position(|&idx| idx == neighborings.point)
+                    .unwrap();
                 let point_local_idx_opposite = point_local_idx_opposite.unwrap();
 
                 let idx_distance = (point_local_idx as i32 - point_local_idx_opposite as i32).abs();
@@ -204,7 +337,7 @@ impl Polygon {
 
         // 3. Since the old edge is now useless, replace it with new face points.
 
-        for &face_idx in affected_faces.iter() {
+        for &face_idx in neighborings.faces.iter() {
             let face = &mut self.face_indices[face_idx];
             print!(
                 "Replacing the point with face point of face {} ({:?}) -> ",
@@ -212,7 +345,7 @@ impl Polygon {
             );
 
             face.iter_mut().for_each(|i| {
-                if *i == point_idx {
+                if *i == neighborings.point {
                     *i = face_point_indices[&face_idx];
                 }
             });
@@ -233,7 +366,7 @@ impl Polygon {
 
         {
             // Borrow as mut so that we can replace this directly
-            let original_point = &mut self.points[point_idx];
+            let original_point = &mut self.points[neighborings.point];
 
             let new_corner_point =
                 (avg_face_points + 2.0 * avg_edge_midpoints + (n - 3) as f32 * *original_point)
@@ -257,8 +390,8 @@ impl Polygon {
         self.face_indices.append(&mut new_faces);
     }
 
-    // Return the indices of neiboring edges to the specified point
-    pub fn neiboring_edges(&self, point_idx: usize) -> Vec<usize> {
+    // Return the indices of neighboring edges to the specified point
+    pub fn neighboring_edges(&self, point_idx: usize) -> Vec<usize> {
         let mut result = Vec::new();
 
         for (i, edge) in self.edge_indices.iter().enumerate() {
@@ -269,8 +402,8 @@ impl Polygon {
         result
     }
 
-    // Return the indices of neiboring faces to the specified point
-    pub fn neiboring_faces(&self, point_idx: usize) -> Vec<usize> {
+    // Return the indices of neighboring faces to the specified point
+    pub fn neighboring_faces(&self, point_idx: usize) -> Vec<usize> {
         let mut result = Vec::new();
 
         for (i, face) in self.face_indices.iter().enumerate() {
@@ -329,7 +462,7 @@ pub fn calculate_initial_cube() -> Polygon {
 
     let points_int: Vec<IntVec3> = points_set.into_iter().collect();
 
-    let points = points_int
+    let points: Vec<Vec3> = points_int
         .iter()
         .map(|p| Vec3::new(p.0 as f32, p.1 as f32, p.2 as f32))
         .collect();
@@ -354,18 +487,29 @@ pub fn calculate_initial_cube() -> Polygon {
         }
     }
 
-    Polygon {
+    let len = points.len();
+    let mut cube = Polygon {
         points,
         face_indices,
         edge_indices: edge_indices.into_iter().collect(),
-    }
+
+        face_points: Vec::new(),
+        edge_midpoints: Vec::new(),
+        edge_points: Vec::new(),
+        new_corners: Vec::new(),
+
+        unsubdivided_corners: Vec::new(),
+    };
+
+    cube.precalculate_subdivisions();
+    cube
 }
 
 fn main() {
     let mut cube = calculate_initial_cube();
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
-    cube.subdevide(0);
+    cube.subdivide();
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
 }
