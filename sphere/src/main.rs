@@ -132,6 +132,7 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     staging_texture: wgpu::Texture,
 
+    cube: mesh::Polygon,
     vertex_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
@@ -208,7 +209,7 @@ impl State {
         // Create the vertex and index buffers
         let vertex_size = std::mem::size_of::<Vertex>();
         let mut cube = mesh::calculate_initial_cube();
-        cube.subdevide(0);
+        cube.subdevide(1);
         let (vertex_data, index_data) = cube.triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -386,6 +387,7 @@ impl State {
             render_pipeline,
             staging_texture,
 
+            cube,
             vertex_buf,
             instance_buf,
             index_buf,
@@ -451,6 +453,27 @@ impl State {
             println!("End recording");
             self.frame = 0;
             self.record = false;
+        }
+
+        if self.frame % 100 == 0 {
+            self.cube.subdevide((self.frame / 100) as usize);
+            let (vertex_data, index_data) = self.cube.triangulate();
+
+            self.vertex_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertex_data),
+                    usage: wgpu::BufferUsage::VERTEX,
+                });
+
+            self.index_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Index Buffer"),
+                    contents: bytemuck::cast_slice(&index_data),
+                    usage: wgpu::BufferUsage::INDEX,
+                });
         }
     }
 

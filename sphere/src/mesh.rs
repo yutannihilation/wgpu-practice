@@ -100,15 +100,15 @@ impl Polygon {
 
         // new face would be like this, starting from top-left and goes clockwise order
         //
-        // e--c    c: new corner point
+        // e--c    c: new corner point (this will be replaced with the original point, so use point_idx)
         // |  |    e: edge point
         // f--e    f: face point
-        let mut new_faces: Vec<Vec<usize>> = vec![vec![0 as usize; 4]; affected_faces.len()];
+        let mut new_faces: Vec<Vec<usize>> = vec![vec![point_idx; 4]; affected_faces.len()];
 
         // face index to point index
         let mut face_point_indices: HashMap<usize, usize> = HashMap::new();
         // edge index to point index
-        let mut edge_midpoints: HashMap<usize, Vec3> = HashMap::new();
+        let mut sum_edge_midpoints = Vec3::zero();
 
         // 1. For each face, add a face point.
 
@@ -154,7 +154,7 @@ impl Polygon {
             self.points.push(edge_point);
 
             // Since the edge will be modified in the next step, preserve the edge midpoints to use later
-            edge_midpoints.insert(edge_idx, self.edge_point(edge_idx));
+            sum_edge_midpoints += self.edge_midpoint(edge_idx);
 
             for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
                 let face = &mut self.face_indices[face_idx];
@@ -221,7 +221,39 @@ impl Polygon {
             println!(" face {:?}", face);
         }
 
-        // 3. Create a new faces using new points.
+        // 4. Create a new corner point and replace the original corner.
+
+        let n = face_point_indices.len();
+        let avg_face_points = face_point_indices
+            .values()
+            .fold(Vec3::zero(), |sum, &i| sum + self.points[i])
+            / n as f32;
+
+        let avg_edge_midpoints = sum_edge_midpoints / n as f32;
+
+        {
+            // Borrow as mut so that we can replace this directly
+            let original_point = &mut self.points[point_idx];
+
+            let new_corner_point =
+                (avg_face_points + 2.0 * avg_edge_midpoints + (n - 3) as f32 * *original_point)
+                    / n as f32;
+
+            std::mem::replace(original_point, new_corner_point);
+        }
+
+        // 5. Register the new faces and edges
+
+        for new_face in new_faces.iter() {
+            let len = new_face.len();
+            for i in 0..len {
+                let mut edge = [new_face[i], new_face[(i + 1) % len]];
+                edge.sort();
+                self.edge_indices.push(edge);
+            }
+        }
+
+        self.face_indices.append(&mut new_faces);
 
         println!("Generated new_faces: {:?}", new_faces);
     }
@@ -251,7 +283,7 @@ impl Polygon {
         result
     }
 
-    pub fn edge_point(&self, edge_idx: usize) -> Vec3 {
+    pub fn edge_midpoint(&self, edge_idx: usize) -> Vec3 {
         let e = &self.edge_indices[edge_idx];
         (self.points[e[0]] + self.points[e[1]]) / 2.0
     }
