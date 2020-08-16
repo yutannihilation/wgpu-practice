@@ -42,10 +42,10 @@ pub struct Polygon {
     edge_indices: Vec<[usize; 2]>,
 
     // pre-calculated points to do subdivision
-    face_points: Vec<Vec3>,
-    edge_midpoints: Vec<Vec3>,
-    edge_points: Vec<Vec3>,
-    new_corners: Vec<Vec3>,
+    face_point_indices: Vec<usize>,
+    edge_midpoint_indices: Vec<usize>,
+    edge_point_indices: Vec<usize>,
+    new_corner_indices: Vec<usize>,
 
     // if the specified corner is in here, do subdivision
     unsubdivided_corners: Vec<Neighborings>,
@@ -129,9 +129,22 @@ impl Polygon {
             .collect()
     }
 
+    fn get_face_point(&self, face_idx: usize) -> Vec3 {
+        self.points[self.face_point_indices[face_idx]]
+    }
+    fn get_edge_midpoint(&self, edge_idx: usize) -> Vec3 {
+        self.points[self.edge_midpoint_indices[edge_idx]]
+    }
+    fn get_edge_point(&self, edge_idx: usize) -> Vec3 {
+        self.points[self.edge_point_indices[edge_idx]]
+    }
+    fn get_new_corner(&self, point_idx: usize) -> Vec3 {
+        self.points[self.new_corner_indices[point_idx]]
+    }
+
     pub fn precalculate_subdivisions(&mut self) {
         // Calculate face points
-        self.face_points = self
+        let mut face_points: Vec<Vec3> = self
             .face_indices
             .iter()
             .map(|face| {
@@ -142,7 +155,7 @@ impl Polygon {
             .collect();
 
         // Calculate edge midpoints
-        self.edge_midpoints = self
+        let mut edge_midpoints: Vec<Vec3> = self
             .edge_indices
             .iter()
             .map(|edge| (self.points[edge[0]] + self.points[edge[1]]) / 2.0)
@@ -156,15 +169,13 @@ impl Polygon {
 
             let sum_of_face_points = neighboring_faces
                 .iter()
-                .fold(Vec3::zero(), |sum, &i| sum + self.face_points[i]);
+                .fold(Vec3::zero(), |sum, &i| sum + face_points[i]);
 
             let edge_point = (sum_of_face_points + self.points[edge[0]] + self.points[edge[1]])
                 / (neighboring_faces.len() + 2) as f32;
 
             edge_points.push(edge_point);
         }
-
-        self.edge_points = edge_points;
 
         // Calculate new points
         let mut new_corners: Vec<Vec3> = Vec::new();
@@ -182,12 +193,12 @@ impl Polygon {
 
             let avg_face_points = neighboring_faces
                 .iter()
-                .fold(Vec3::zero(), |sum, &i| sum + self.face_points[i])
+                .fold(Vec3::zero(), |sum, &i| sum + face_points[i])
                 / n as f32;
 
             let avg_edge_midpoints = neighboring_edges
                 .iter()
-                .fold(Vec3::zero(), |sum, &i| sum + self.edge_midpoints[i])
+                .fold(Vec3::zero(), |sum, &i| sum + edge_midpoints[i])
                 / n as f32;
 
             let new_corner =
@@ -202,8 +213,28 @@ impl Polygon {
             })
         }
 
-        self.new_corners = new_corners;
         self.unsubdivided_corners = unsubdivided_corners;
+
+        // needs to add points list so that it can be converted to indices to avoid duplication
+        let mut offset = self.points.len();
+        let face_point_indice_last = offset + face_points.len();
+        self.face_point_indices = (offset..face_point_indice_last).collect();
+        self.points.append(&mut face_points);
+        offset = face_point_indice_last;
+
+        let edge_midpoint_indice_last = offset + edge_midpoints.len();
+        self.edge_midpoint_indices = (offset..edge_midpoint_indice_last).collect();
+        self.points.append(&mut edge_midpoints);
+        offset = edge_midpoint_indice_last;
+
+        let edge_point_indice_last = offset + edge_points.len();
+        self.edge_point_indices = (offset..edge_point_indice_last).collect();
+        self.points.append(&mut edge_points);
+        offset = edge_point_indice_last;
+
+        let new_corner_indice_last = offset + new_corners.len();
+        self.new_corner_indices = (offset..new_corner_indice_last).collect();
+        self.points.append(&mut new_corners);
     }
 
     // An implementation of https://en.wikipedia.org/wiki/Catmull%E2%80%93Clark_subdivision_surface
@@ -213,6 +244,8 @@ impl Polygon {
     // 3. Create a new faces using new points.
     pub fn subdivide(&mut self) {
         if self.unsubdivided_corners.len() == 0 {
+            println!("Re-calculating");
+            println!("{:#?}", self.face_indices);
             self.precalculate_subdivisions();
         }
         let neighborings = self.unsubdivided_corners.pop().unwrap();
@@ -241,26 +274,26 @@ impl Polygon {
                 edge[0]
             };
 
-            let new_point_idx = self.points.len();
-            self.points.push(self.edge_points[edge_idx]);
-
+            let new_point_idx = self.edge_point_indices[edge_idx];
             for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
                 let face = &mut self.face_indices[face_idx];
                 print!(
                     "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
                     edge_idx, edge, face_idx, face,
                 );
-                let point_local_idx_opposite =
-                    face.iter().position(|&idx| idx == point_idx_opposite);
-                // Modify only on the face that contains both points of the edge
-                if point_local_idx_opposite.is_none() {
-                    println!("skip");
-                    continue;
-                }
+
                 let point_local_idx = face
                     .iter()
                     .position(|&idx| idx == neighborings.point)
                     .unwrap();
+
+                let point_local_idx_opposite =
+                    face.iter().position(|&idx| idx == point_idx_opposite);
+                // Modify only on the face that contains both points of the edge
+                if point_local_idx_opposite.is_none() {
+                    println!("not a neighbor, skip");
+                    continue;
+                }
                 let point_local_idx_opposite = point_local_idx_opposite.unwrap();
 
                 let idx_distance = (point_local_idx as i32 - point_local_idx_opposite as i32).abs();
@@ -270,7 +303,6 @@ impl Polygon {
                 } else {
                     std::cmp::max(point_local_idx, point_local_idx_opposite)
                 };
-                face.insert(pos, new_point_idx);
 
                 if pos == point_local_idx {
                     // If the new point is inserted before the original point, it will be the first point of the new face
@@ -280,23 +312,34 @@ impl Polygon {
                     new_faces[new_face_idx][2] = new_point_idx;
                 }
 
+                // insert the edge point only when it's not added yet
+                if face.contains(&new_point_idx) {
+                    println!("already has the edge point, skip");
+                    continue;
+                }
+
+                face.insert(pos, new_point_idx);
+
                 // result
                 println!(" face {:?}", face);
             }
 
-            // Update the edge
-            let mut new_edge = [new_point_idx, point_idx_opposite];
-            new_edge.sort();
-            {
+            // If the edge point is not yet added, add the new edge containing it
+            // If the edge point is already there, it means the edge is no more useful
+            if new_point_idx != point_idx_opposite {
+                let mut new_edge = [new_point_idx, point_idx_opposite];
+                new_edge.sort();
+
                 let edge = &mut self.edge_indices[edge_idx];
                 std::mem::replace(edge, new_edge);
+            } else {
+                self.edge_indices.remove(edge_idx);
             }
         }
 
         for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
             // Calculate face point and add it to the points list
-            let new_point_idx = self.points.len();
-            self.points.push(self.face_points[face_idx]);
+            let new_point_idx = self.face_point_indices[face_idx];
 
             let face = &mut self.face_indices[face_idx];
             print!(
@@ -304,11 +347,35 @@ impl Polygon {
                 face_idx, face
             );
 
-            face.iter_mut().for_each(|i| {
-                if *i == neighborings.point {
-                    *i = new_point_idx;
-                }
-            });
+            if !face.contains(&new_point_idx) {
+                // For the first time, replace the point with face point
+                //
+                // x-----x      x-----x
+                // |     |      |     |
+                // |  x  |  ->  |  o--x
+                // |     |      |  |
+                // x-----o      x--x
+                face.iter_mut().for_each(|i| {
+                    if *i == neighborings.point {
+                        *i = new_point_idx;
+                    }
+                });
+            } else {
+                // If there's already face point, remove the node
+                //
+                // x-----x      x-----x
+                // |     |      |     |
+                // |  x--x  ->  o--x--x
+                // |  |         
+                // o--x         
+                //
+                // o-----x         x--x
+                // |     |         |  |
+                // |  x--x  ->  x--o--x
+                // |  |         |  |
+                // x--x         x--x
+
+            }
 
             // result
             println!(" face {:?}", face);
@@ -318,8 +385,8 @@ impl Polygon {
         }
 
         {
+            let new_corner = self.get_new_corner(neighborings.point);
             let original_point = &mut self.points[neighborings.point];
-            let new_corner = self.new_corners[neighborings.point];
             std::mem::replace(original_point, new_corner);
         }
 
@@ -336,41 +403,6 @@ impl Polygon {
 
         println!("Generated new_faces: {:?}", new_faces);
         self.face_indices.append(&mut new_faces);
-    }
-
-    // Return the indices of neighboring edges to the specified point
-    pub fn neighboring_edges(&self, point_idx: usize) -> Vec<usize> {
-        let mut result = Vec::new();
-
-        for (i, edge) in self.edge_indices.iter().enumerate() {
-            if edge[0] == point_idx || edge[1] == point_idx {
-                result.push(i);
-            }
-        }
-        result
-    }
-
-    // Return the indices of neighboring faces to the specified point
-    pub fn neighboring_faces(&self, point_idx: usize) -> Vec<usize> {
-        let mut result = Vec::new();
-
-        for (i, face) in self.face_indices.iter().enumerate() {
-            if face.iter().position(|&idx| idx == point_idx).is_some() {
-                result.push(i);
-            }
-        }
-
-        result
-    }
-
-    pub fn edge_midpoint(&self, edge_idx: usize) -> Vec3 {
-        let e = &self.edge_indices[edge_idx];
-        (self.points[e[0]] + self.points[e[1]]) / 2.0
-    }
-
-    pub fn face_point(&self, face_idx: usize) -> Vec3 {
-        let f = &self.face_indices[face_idx];
-        f.iter().fold(Vec3::zero(), |sum, &i| sum + self.points[i]) / f.len() as f32
     }
 }
 
@@ -441,10 +473,10 @@ pub fn calculate_initial_cube() -> Polygon {
         face_indices,
         edge_indices: edge_indices.into_iter().collect(),
 
-        face_points: Vec::new(),
-        edge_midpoints: Vec::new(),
-        edge_points: Vec::new(),
-        new_corners: Vec::new(),
+        face_point_indices: Vec::new(),
+        edge_midpoint_indices: Vec::new(),
+        edge_point_indices: Vec::new(),
+        new_corner_indices: Vec::new(),
 
         unsubdivided_corners: Vec::new(),
     };
@@ -458,6 +490,14 @@ fn main() {
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
     cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
+    // cube.subdivide();
+    // cube.subdivide();
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
 }
