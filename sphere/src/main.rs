@@ -52,7 +52,7 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 2;
+const NUM_INSTANCES: u32 = 1;
 
 // The original code is https://sotrh.github.io/learn-wgpu/beginner/tutorial7-instancing/#another-better-way-storage-buffers
 struct Instance {
@@ -94,7 +94,7 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: f32) -> Uniforms {
     let eye = cgmath::Point3::new(
         10.0f32 * frame.sin(),
         -10.0 * frame.cos(),
-        4.0 * (0.2 * frame - 0.1).sin(),
+        8.0 * (0.2 * frame - 0.1).sin(),
     );
     let mx_view = cgmath::Matrix4::look_at(
         eye,
@@ -618,9 +618,9 @@ fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
     let instances: Vec<Instance> = (0..NUM_INSTANCES)
         .map(|x| {
             let position = cgmath::Vector3 {
-                x: (x * frame) as f32 / 800.0,
-                y: (x * frame) as f32 / 800.0,
-                z: (x * frame) as f32 / 1200.0,
+                x: ((x + 1) * frame) as f32 / 80000.0,
+                y: ((x + 2) * frame) as f32 / 70000.0,
+                z: ((x + 3) * frame) as f32 / 120000.0,
             };
 
             let rotation = if position.is_zero() {
@@ -630,7 +630,7 @@ fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
             } else {
                 cgmath::Quaternion::from_axis_angle(
                     position.clone().normalize(),
-                    cgmath::Deg(20.0 * ((x * frame) as f32 / 100.0)),
+                    cgmath::Deg(((x + 1) * frame) as f32),
                 )
             };
 

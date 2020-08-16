@@ -1,5 +1,5 @@
 use glam::{Quat, Vec3};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 // Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
@@ -91,11 +91,11 @@ impl Polygon {
     // 2. Replace the specified point with the face point (on each face).
     // 3. Create a new faces using new points.
     pub fn subdevide(&mut self, point_idx: usize) {
-        let affected_edges = self.neiboring_edges(point_idx);
+        let affected_edges = &self.neiboring_edges(point_idx);
         println!("affected edges: {:#?}", affected_edges);
 
         // probably we can search on all the faces every time...?
-        let affected_faces = self.neiboring_faces(point_idx);
+        let affected_faces = &self.neiboring_faces(point_idx);
         println!("affected faces: {:#?}", affected_faces);
 
         // new face would be like this, starting from top-left and goes clockwise order
@@ -105,20 +105,56 @@ impl Polygon {
         // f--e    f: face point
         let mut new_faces: Vec<Vec<usize>> = vec![vec![0 as usize; 4]; affected_faces.len()];
 
-        // 1. Insert edge points before and after the specified point.
+        // face index to point index
+        let mut face_point_indices: HashMap<usize, usize> = HashMap::new();
+        // edge index to point index
+        let mut edge_midpoints: HashMap<usize, Vec3> = HashMap::new();
+
+        // 1. For each face, add a face point.
+
+        for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
+            // Calculate face point and add it to the points list
+            let new_point_idx = self.points.len();
+            self.points.push(self.face_point(face_idx));
+
+            // Note that we cannot replace the actual face's point here yet since it will be
+            // used for detecting the neibouring faces when calculating edge points.
+
+            // The face point will be the last point of the new face
+            new_faces[new_face_idx][3] = new_point_idx;
+            face_point_indices.insert(face_idx, new_point_idx);
+        }
+
+        // 2. Insert edge points before and after the specified point.
 
         for &edge_idx in affected_edges.iter() {
-            // Calculate edge point and add it to the points list
-            let new_point_idx = self.points.len();
-            self.points.push(self.edge_point(edge_idx));
-
-            let edge = &mut self.edge_indices[edge_idx];
+            let edge = &self.edge_indices[edge_idx];
 
             let point_idx_opposite = if edge[0] == point_idx {
                 edge[1]
             } else {
                 edge[0]
             };
+
+            // Filter the faces neiboring to the edge (= contains both points of the edge)
+            let neiboring_faces: Vec<usize> = affected_faces
+                .iter()
+                .map(|&i| i) // Not sure why I need to dereference here before filter...
+                .filter(|&f| self.face_indices[f].contains(&point_idx_opposite))
+                .collect();
+
+            let sum_of_face_points = neiboring_faces.iter().fold(Vec3::zero(), |sum, &i| {
+                sum + self.points[face_point_indices[&i]]
+            });
+
+            let edge_point = (sum_of_face_points + self.points[edge[0]] + self.points[edge[1]])
+                / (neiboring_faces.len() + 2) as f32;
+
+            let new_point_idx = self.points.len();
+            self.points.push(edge_point);
+
+            // Since the edge will be modified in the next step, preserve the edge midpoints to use later
+            edge_midpoints.insert(edge_idx, self.edge_point(edge_idx));
 
             for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
                 let face = &mut self.face_indices[face_idx];
@@ -160,16 +196,15 @@ impl Polygon {
             // Update the edge
             let mut new_edge = [new_point_idx, point_idx_opposite];
             new_edge.sort();
-            std::mem::replace(edge, new_edge);
+            {
+                let edge = &mut self.edge_indices[edge_idx];
+                std::mem::replace(edge, new_edge);
+            }
         }
 
-        // 2. Replace the specified point with the face point (on each face).
+        // 3. Since the old edge is now useless, replace it with new face points.
 
-        for (new_face_idx, &face_idx) in affected_faces.iter().enumerate() {
-            // Calculate face point and add it to the points list
-            let new_point_idx = self.points.len();
-            self.points.push(self.face_point(face_idx));
-
+        for &face_idx in affected_faces.iter() {
             let face = &mut self.face_indices[face_idx];
             print!(
                 "Replacing the point with face point of face {} ({:?}) -> ",
@@ -178,16 +213,15 @@ impl Polygon {
 
             face.iter_mut().for_each(|i| {
                 if *i == point_idx {
-                    *i = new_point_idx
+                    *i = face_point_indices[&face_idx];
                 }
             });
-
-            // The face point will be the last point of the new face
-            new_faces[new_face_idx][3] = new_point_idx;
 
             // result
             println!(" face {:?}", face);
         }
+
+        // 3. Create a new faces using new points.
 
         println!("Generated new_faces: {:?}", new_faces);
     }
