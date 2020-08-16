@@ -92,8 +92,8 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: f32) -> Uniforms {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
 
     let eye = cgmath::Point3::new(
-        10.0f32 * frame.sin(),
-        -10.0 * frame.cos(),
+        5.0f32 * frame.sin(),
+        -5.0 * frame.cos(),
         8.0 * (0.2 * frame - 0.1).sin(),
     );
     let mx_view = cgmath::Matrix4::look_at(
@@ -209,7 +209,6 @@ impl State {
         // Create the vertex and index buffers
         let vertex_size = std::mem::size_of::<Vertex>();
         let mut cube = mesh::calculate_initial_cube();
-        cube.subdivide();
         let (vertex_data, index_data) = cube.triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -260,7 +259,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
-            position: (-3.0, -3.0, 3.0, 1.0).into(),
+            position: (3.0, -3.0, 3.0, 1.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         };
         let light_size = std::mem::size_of_val(&light) as u64;
@@ -455,7 +454,7 @@ impl State {
             self.record = false;
         }
 
-        if self.frame % 100 == 0 {
+        if self.frame % 50 == 0 {
             self.cube.subdivide();
             let (vertex_data, index_data) = self.cube.triangulate();
 
@@ -581,13 +580,13 @@ impl State {
             });
 
             // draw light
-            render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-            render_pass.set_index_buffer(self.index_buf.slice(..));
-            render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            // render_pass.set_pipeline(&self.light_render_pipeline);
+            // render_pass.set_bind_group(0, &bind_group, &[]);
+            // render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+            // render_pass.set_index_buffer(self.index_buf.slice(..));
+            // render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
 
-            render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
+            // render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
 
             // draw cube
             render_pass.set_pipeline(&self.render_pipeline);
