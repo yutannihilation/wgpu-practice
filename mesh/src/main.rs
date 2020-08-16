@@ -318,6 +318,13 @@ impl Polygon {
                     continue;
                 }
 
+                // insert edge points
+                //
+                // x-----x      x-----x
+                // |     |      |     |
+                // |  x  |  ->  |     x
+                // |     |      |     |
+                // x-----o      x--x--o
                 face.insert(pos, new_point_idx);
 
                 // result
@@ -352,9 +359,9 @@ impl Polygon {
                 //
                 // x-----x      x-----x
                 // |     |      |     |
-                // |  x  |  ->  |  o--x
+                // |  x  x  ->  |  o--x
                 // |     |      |  |
-                // x-----o      x--x
+                // x--x--o      x--x
                 face.iter_mut().for_each(|i| {
                     if *i == neighborings.point {
                         *i = new_point_idx;
@@ -366,15 +373,14 @@ impl Polygon {
                 // x-----x      x-----x
                 // |     |      |     |
                 // |  x--x  ->  o--x--x
-                // |  |         
-                // o--x         
+                // |  |
+                // o--x
                 //
                 // o-----x         x--x
                 // |     |         |  |
                 // |  x--x  ->  x--o--x
                 // |  |         |  |
                 // x--x         x--x
-
             }
 
             // result

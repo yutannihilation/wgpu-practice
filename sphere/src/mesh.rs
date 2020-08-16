@@ -347,13 +347,33 @@ impl Polygon {
                 face_idx, face
             );
 
-            if face.contains(&new_point_idx) {
-            } else {
+            if !face.contains(&new_point_idx) {
+                // For the first time, replace the point with face point
+                //
+                // x-----x      x-----x
+                // |     |      |     |
+                // |  x  |  ->  |  o--x
+                // |     |      |  |
+                // x-----o      x--x
                 face.iter_mut().for_each(|i| {
                     if *i == neighborings.point {
                         *i = new_point_idx;
                     }
                 });
+            } else {
+                // If there's already face point, remove the node
+                //
+                // x-----x      x-----x
+                // |     |      |     |
+                // |  x--x  ->  o--x--x
+                // |  |
+                // o--x
+                //
+                // o-----x         x--x
+                // |     |         |  |
+                // |  x--x  ->  x--o--x
+                // |  |         |  |
+                // x--x         x--x
             }
 
             // result
