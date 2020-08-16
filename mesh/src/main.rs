@@ -1,6 +1,5 @@
 use glam::{Quat, Vec3};
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::hash::Hash;
 
 // Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
@@ -13,37 +12,6 @@ pub struct Vertex {
 
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
-
-#[derive(Debug)]
-struct Edge {
-    points: [Vec3; 2],
-}
-
-impl Edge {
-    fn edge_point(&self) -> Vec3 {
-        (self.points[0] + self.points[1]) / 2.0
-    }
-}
-
-#[derive(Debug)]
-struct Face {
-    points: VecDeque<Vec3>,
-}
-
-impl Face {
-    fn face_point(&self) -> Vec3 {
-        self.points.iter().fold(Vec3::zero(), |sum, p| sum + *p) / self.points.len() as f32
-    }
-
-    fn edges(&self) -> Vec<Edge> {
-        let len = self.points.len();
-        (0..len)
-            .map(|i| Edge {
-                points: [self.points[i], self.points[(i + 1) % len]],
-            })
-            .collect()
-    }
-}
 
 // Since Vec3 (or float generally) doesn't support Hash, we need an integer version
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -127,12 +95,14 @@ impl Polygon {
         // probably we can search on all the faces every time...?
         let affected_faces = self.neiboring_faces(point_idx);
 
+        // 1. Insert edge points before and after the specified point.
+
         for &edge_idx in affected_edges.iter() {
             let edge = self.edge_indices[edge_idx];
 
             // Calculate edge point and add it to the points list
-            self.points.push(self.edge_point(edge_idx));
             let new_point_idx = self.points.len();
+            self.points.push(self.edge_point(edge_idx));
 
             let point_idx_opposite = if edge[0] == point_idx {
                 edge[1]
@@ -143,7 +113,7 @@ impl Polygon {
             for &face_idx in affected_faces.iter() {
                 let face = &mut self.face_indices[face_idx];
                 print!(
-                    "processing face {} ({:?}) for edge {} ({:?}) -> ",
+                    "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
                     face_idx, face, edge_idx, edge
                 );
                 let point_local_idx_opposite =
@@ -164,8 +134,33 @@ impl Polygon {
                     std::cmp::max(point_local_idx, point_local_idx_opposite)
                 };
                 face.insert(pos, new_point_idx);
+
+                // result
                 println!(" face {:?}", face);
             }
+        }
+
+        // 2. Replace the specified point with the face point (on each face).
+
+        for &face_idx in affected_faces.iter() {
+            // Calculate face point and add it to the points list
+            let new_point_idx = self.points.len();
+            self.points.push(self.face_point(face_idx));
+
+            let face = &mut self.face_indices[face_idx];
+            print!(
+                "Replacing the point with face point of face {} ({:?}) -> ",
+                face_idx, face
+            );
+
+            face.iter_mut().for_each(|i| {
+                if *i == point_idx {
+                    *i = new_point_idx
+                }
+            });
+
+            // result
+            println!(" face {:?}", face);
         }
     }
 
