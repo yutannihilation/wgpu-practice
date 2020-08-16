@@ -86,7 +86,11 @@ struct IntVec3(i32, i32, i32);
 
 impl IntVec3 {
     fn new(v: Vec3) -> Self {
-        Self(v.x() as i32, v.y() as i32, v.z() as i32)
+        Self(
+            v.x().round() as i32,
+            v.y().round() as i32,
+            v.z().round() as i32,
+        )
     }
 }
 
@@ -100,58 +104,51 @@ pub struct Polygon {
 impl Polygon {
     pub fn triangulate(&self) -> (Vec<Vertex>, Vec<u16>) {
         let mut indices: Vec<u16> = Vec::new();
-
-        // fill normals
-        let mut normals: Vec<Vec3> = Vec::with_capacity(self.points.len());
-        (0..self.points.len()).for_each(|_| normals.push(Vec3::zero()));
+        let mut vertices: Vec<Vertex> = Vec::new();
 
         for f in self.face_indices.iter() {
-            let len = f.len();
-
-            // 1st point is fixed
+            // As all points belongs to the same surface, the normal should be the same.
+            // Calculate a normal vector with arbitrary 3 points within the face for now.
+            // (I might need to revisit here when I want to calculate the average of the
+            // neibouring surfaces...)
             let i0 = f[0];
             let p0 = self.points[i0];
+            let p1 = self.points[f[1]];
+            let p2 = self.points[f[2]];
+
+            let v0 = p1 - p0;
+            let v1 = p2 - p0;
+
+            // Calculate the normal vector
+            let normal_unnormalized = v0.cross(v1);
+
+            // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
+            let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
+                -normal_unnormalized.normalize()
+            } else {
+                normal_unnormalized.normalize()
+            };
+
+            let len = f.len();
+            let indices_offset = vertices.len();
+
+            // Create verticles
+            for i in 0..len {
+                let p = self.points[f[i]];
+                vertices.push(Vertex {
+                    _pos: [p.x(), p.y(), p.z(), 1.0],
+                    _normal: [normal.x(), normal.y(), normal.z()],
+                })
+            }
+
+            // Choose combination of three points
             for i in 1..(len - 1) {
-                // choose indices
-                let i1 = f[i];
-                let i2 = f[(i + 1) % len];
-
-                indices.push(i0 as u16);
-                indices.push(i1 as u16);
-                indices.push(i2 as u16);
-
-                let p1 = self.points[i1];
-                let p2 = self.points[i2];
-
-                let v0 = p1 - p0;
-                let v1 = p2 - p0;
-
-                // Calculate the normal vector
-                let normal_unnormalized = v0.cross(v1);
-
-                // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
-                let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
-                    -normal_unnormalized.normalize()
-                } else {
-                    normal_unnormalized.normalize()
-                };
-
-                normals[i0] = normal;
-                normals[i1] = normal;
-                normals[i2] = normal;
+                indices.push(indices_offset as u16);
+                indices.push((indices_offset + i) as u16);
+                indices.push((indices_offset + (i + 1) % len) as u16);
             }
         }
 
-        let vertices = (0..self.points.len())
-            .map(|i| {
-                let p = self.points[i];
-                let n = normals[i];
-                Vertex {
-                    _pos: [p.x(), p.y(), p.z(), 1.0],
-                    _normal: [n.x(), n.y(), n.z()],
-                }
-            })
-            .collect();
         (vertices, indices)
     }
 }
@@ -176,13 +173,13 @@ pub fn calculate_initial_cube() -> Polygon {
         .collect();
 
     let mut faces_int: Vec<Vec<IntVec3>> = Vec::new();
-    let mut points = Vec::new();
+    let mut points_tmp = Vec::new();
     let mut points_set = HashSet::new();
 
     for f in faces.iter() {
         let mut faces_int_inner: Vec<IntVec3> = Vec::new();
         for &v in f.iter() {
-            points.push(v);
+            points_tmp.push(v);
             let p = IntVec3::new(v);
             faces_int_inner.push(p.clone());
             points_set.insert(p);
@@ -190,7 +187,12 @@ pub fn calculate_initial_cube() -> Polygon {
         faces_int.push(faces_int_inner);
     }
 
-    let mut points_int: Vec<IntVec3> = points_set.into_iter().collect();
+    let points_int: Vec<IntVec3> = points_set.into_iter().collect();
+
+    let points = points_int
+        .iter()
+        .map(|p| Vec3::new(p.0 as f32, p.1 as f32, p.2 as f32))
+        .collect();
 
     let mut face_indices: Vec<Vec<usize>> = Vec::new();
     let mut edge_indices: Vec<Vec<[usize; 2]>> = Vec::new();
