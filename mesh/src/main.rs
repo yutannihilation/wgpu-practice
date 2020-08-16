@@ -85,6 +85,8 @@ impl Polygon {
         (vertices, indices)
     }
 
+    // An implementation of https://en.wikipedia.org/wiki/Catmull%E2%80%93Clark_subdivision_surface
+    //
     // 1. Insert edge points before and after the specified point.
     // 2. Replace the specified point with the face point (on each face).
     // 3. Create a new faces using new points.
@@ -94,15 +96,16 @@ impl Polygon {
 
         // probably we can search on all the faces every time...?
         let affected_faces = self.neiboring_faces(point_idx);
+        println!("affected faces: {:#?}", affected_faces);
 
         // 1. Insert edge points before and after the specified point.
 
         for &edge_idx in affected_edges.iter() {
-            let edge = self.edge_indices[edge_idx];
-
             // Calculate edge point and add it to the points list
             let new_point_idx = self.points.len();
             self.points.push(self.edge_point(edge_idx));
+
+            let edge = &mut self.edge_indices[edge_idx];
 
             let point_idx_opposite = if edge[0] == point_idx {
                 edge[1]
@@ -138,6 +141,11 @@ impl Polygon {
                 // result
                 println!(" face {:?}", face);
             }
+
+            // Update the edge
+            let mut new_edge = [new_point_idx, point_idx_opposite];
+            new_edge.sort();
+            std::mem::replace(edge, new_edge);
         }
 
         // 2. Replace the specified point with the face point (on each face).
@@ -271,8 +279,8 @@ pub fn calculate_initial_cube() -> Polygon {
 fn main() {
     let mut cube = calculate_initial_cube();
     println!("{:?}", cube.face_indices);
+    println!("{:?}", cube.edge_indices);
     cube.subdevide(0);
     println!("{:?}", cube.face_indices);
-    println!("{:#?}", cube.neiboring_edges(0));
-    println!("{:#?}", cube.neiboring_faces(0));
+    println!("{:?}", cube.edge_indices);
 }
