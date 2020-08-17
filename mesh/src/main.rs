@@ -1,4 +1,5 @@
 use glam::{Quat, Vec3};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -28,10 +29,9 @@ impl IntVec3 {
 }
 
 #[derive(Debug)]
-pub struct Neighborings {
-    point: usize,
-    edges: Vec<usize>,
-    faces: Vec<usize>,
+pub struct CornerNeighborings {
+    corner: usize,
+    neighborings: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -44,11 +44,10 @@ pub struct Polygon {
     // pre-calculated points to do subdivision
     face_point_indices: Vec<usize>,
     edge_midpoint_indices: Vec<usize>,
-    edge_point_indices: Vec<usize>,
-    new_corner_indices: Vec<usize>,
+    new_points: HashMap<usize, Vec3>,
 
     // if the specified corner is in here, do subdivision
-    unsubdivided_corners: Vec<Neighborings>,
+    corner_and_neighborings: Vec<CornerNeighborings>,
 }
 
 impl Polygon {
@@ -135,11 +134,14 @@ impl Polygon {
     fn get_edge_midpoint(&self, edge_idx: usize) -> Vec3 {
         self.points[self.edge_midpoint_indices[edge_idx]]
     }
-    fn get_edge_point(&self, edge_idx: usize) -> Vec3 {
-        self.points[self.edge_point_indices[edge_idx]]
-    }
-    fn get_new_corner(&self, point_idx: usize) -> Vec3 {
-        self.points[self.new_corner_indices[point_idx]]
+
+    fn find_edge_index(&self, point_idx0: usize, point_idx1: usize) -> usize {
+        let edge = if point_idx0 < point_idx1 {
+            [point_idx0, point_idx1]
+        } else {
+            [point_idx1, point_idx0]
+        };
+        self.edge_indices.iter().position(|p| *p == edge).unwrap()
     }
 
     pub fn precalculate_subdivisions(&mut self) {
@@ -179,7 +181,6 @@ impl Polygon {
 
         // Calculate new points
         let mut new_corners: Vec<Vec3> = Vec::new();
-        let mut unsubdivided_corners: Vec<Neighborings> = Vec::new();
 
         for (orig_corner_idx, orig_corner) in self.points.iter().enumerate() {
             let neighboring_edges: Vec<usize> =
@@ -206,209 +207,115 @@ impl Polygon {
                     / n as f32;
 
             new_corners.push(new_corner);
-            unsubdivided_corners.push(Neighborings {
-                point: orig_corner_idx,
-                edges: neighboring_edges,
-                faces: neighboring_faces,
-            })
         }
 
-        self.unsubdivided_corners = unsubdivided_corners;
+        let mut point_indice_last = self.points.len();
 
-        // needs to add points list so that it can be converted to indices to avoid duplication
-        let mut offset = self.points.len();
-        let face_point_indice_last = offset + face_points.len();
-        self.face_point_indices = (offset..face_point_indice_last).collect();
+        self.new_points = HashMap::new();
+        for point_idx in 0..point_indice_last {
+            self.new_points.insert(point_idx, new_corners[point_idx]);
+        }
+
+        let face_point_indice_last = point_indice_last + face_points.len();
+        self.face_point_indices = (point_indice_last..face_point_indice_last).collect();
         self.points.append(&mut face_points);
-        offset = face_point_indice_last;
+        point_indice_last = face_point_indice_last;
 
-        let edge_midpoint_indice_last = offset + edge_midpoints.len();
-        self.edge_midpoint_indices = (offset..edge_midpoint_indice_last).collect();
+        let edge_midpoint_indice_last = point_indice_last + edge_midpoints.len();
+        self.edge_midpoint_indices = (point_indice_last..edge_midpoint_indice_last).collect();
         self.points.append(&mut edge_midpoints);
-        offset = edge_midpoint_indice_last;
 
-        let edge_point_indice_last = offset + edge_points.len();
-        self.edge_point_indices = (offset..edge_point_indice_last).collect();
-        self.points.append(&mut edge_points);
-        offset = edge_point_indice_last;
+        for (edge_idx, point_idx) in (point_indice_last..edge_midpoint_indice_last).enumerate() {
+            self.new_points.insert(point_idx, edge_points[edge_idx]);
+        }
 
-        let new_corner_indice_last = offset + new_corners.len();
-        self.new_corner_indices = (offset..new_corner_indice_last).collect();
-        self.points.append(&mut new_corners);
+        // Quartering each surfaces, so that the points can be replaced easily
+        //
+        // x-----x      x-----x
+        // |     |      |  |  |
+        // |     |  ->  x--x--x
+        // |     |      |  |  |
+        // x-----x      x--x--x
+
+        let mut new_faces: Vec<Vec<usize>> = Vec::new();
+        let mut new_edges: Vec<[usize; 2]> = Vec::new();
+
+        let mut new_edges: HashSet<[usize; 2]> = HashSet::new();
+        let mut neighboring_edge_midpoints_map: HashMap<usize, HashSet<usize>> = HashMap::new();
+
+        for (face_idx, face) in self.face_indices.iter().enumerate() {
+            // For each face, create a new subface
+            //
+            // x-----x      x-----x  f: face point
+            // |     |      |     |  1: edge point (right)
+            // |     |  ->  |  f--1  2: edge point (left)
+            // |     |      |  |  |
+            // x-----o      x--2--o
+            let n_points = face.len();
+            let face_point = self.face_point_indices[face_idx];
+            for (point_idx, point) in face.iter().enumerate() {
+                let edge_right =
+                    self.find_edge_index(face[point_idx], face[(point_idx + 1) % n_points]);
+                let edge_midpoint_right = self.edge_midpoint_indices[edge_right];
+
+                let edge_left = self.find_edge_index(
+                    face[(point_idx as i32 - 1) as usize % n_points], // Note: temporarily convert to i32 as usize cannot be negative
+                    face[point_idx],
+                );
+                let edge_midpoint_left = self.edge_midpoint_indices[edge_left];
+
+                let new_face = vec![face_point, edge_midpoint_right, *point, edge_midpoint_left];
+                new_edges.insert([new_face[0], new_face[1]]);
+                new_edges.insert([new_face[1], new_face[2]]);
+                new_edges.insert([new_face[2], new_face[3]]);
+                new_edges.insert([new_face[3], new_face[0]]);
+                new_faces.push(new_face);
+
+                let neighboring_edge_midpoints = match neighboring_edge_midpoints_map.entry(*point)
+                {
+                    Entry::Occupied(o) => o.into_mut(),
+                    Entry::Vacant(v) => v.insert(HashSet::new()),
+                };
+
+                neighboring_edge_midpoints.insert(edge_midpoint_right);
+                neighboring_edge_midpoints.insert(edge_midpoint_left);
+            }
+        }
+
+        println!("new faces: {:?}", new_faces);
+        println!("new edges: {:?}", new_edges);
+        println!("neighborings: {:?}", neighboring_edge_midpoints_map);
+
+        self.face_indices = new_faces;
+        self.edge_indices = new_edges.into_iter().collect();
+        self.corner_and_neighborings = neighboring_edge_midpoints_map
+            .into_iter()
+            .map(|(k, v)| CornerNeighborings {
+                corner: k,
+                neighborings: v.into_iter().collect::<Vec<usize>>(),
+            })
+            .collect();
     }
 
     // An implementation of https://en.wikipedia.org/wiki/Catmull%E2%80%93Clark_subdivision_surface
     //
-    // 1. Insert edge points before and after the specified point.
-    // 2. Replace the specified point with the face point (on each face).
-    // 3. Create a new faces using new points.
+    // 1. Replace edge midpoints with edge points.
+    // 2. Replace the specified point with the new corner point.
     pub fn subdivide(&mut self) {
-        if self.unsubdivided_corners.len() == 0 {
+        if self.corner_and_neighborings.len() == 0 {
             println!("Re-calculating");
             println!("{:#?}", self.face_indices);
             self.precalculate_subdivisions();
         }
-        let neighborings = self.unsubdivided_corners.pop().unwrap();
+        let target = self.corner_and_neighborings.pop().unwrap();
 
-        println!("affected edges: {:#?}", neighborings.edges);
+        println!("affected corner and neighborings: {:#?}", target);
 
-        // probably we can search on all the faces every time...?
-        println!("affected faces: {:#?}", neighborings.faces);
+        self.points[target.corner] = self.new_points[&target.corner];
 
-        // new face would be like this, starting from top-left and goes clockwise order
-        //
-        // e--c    c: new corner point (this will be replaced with the original point, so use point_idx)
-        // |  |    e: edge point
-        // f--e    f: face point
-        let mut new_faces: Vec<Vec<usize>> =
-            vec![vec![neighborings.point; 4]; neighborings.faces.len()];
-
-        // 1. Insert edge points before and after the specified point.
-
-        for &edge_idx in neighborings.edges.iter() {
-            let edge = &self.edge_indices[edge_idx];
-
-            let point_idx_opposite = if edge[0] == neighborings.point {
-                edge[1]
-            } else {
-                edge[0]
-            };
-
-            let new_point_idx = self.edge_point_indices[edge_idx];
-            for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
-                let face = &mut self.face_indices[face_idx];
-                print!(
-                    "Adding the edge point of edge {} ({:?}) to face {} ({:?}) -> ",
-                    edge_idx, edge, face_idx, face,
-                );
-
-                let point_local_idx = face
-                    .iter()
-                    .position(|&idx| idx == neighborings.point)
-                    .unwrap();
-
-                let point_local_idx_opposite =
-                    face.iter().position(|&idx| idx == point_idx_opposite);
-                // Modify only on the face that contains both points of the edge
-                if point_local_idx_opposite.is_none() {
-                    println!("not a neighbor, skip");
-                    continue;
-                }
-                let point_local_idx_opposite = point_local_idx_opposite.unwrap();
-
-                let idx_distance = (point_local_idx as i32 - point_local_idx_opposite as i32).abs();
-                // if the index is at the first and last, insert to the front
-                let pos = if idx_distance == (face.len() - 1) as i32 {
-                    0
-                } else {
-                    std::cmp::max(point_local_idx, point_local_idx_opposite)
-                };
-
-                if pos == point_local_idx {
-                    // If the new point is inserted before the original point, it will be the first point of the new face
-                    new_faces[new_face_idx][0] = new_point_idx;
-                } else {
-                    // If the new point is inserted after the original point, it will be the third point of the new face
-                    new_faces[new_face_idx][2] = new_point_idx;
-                }
-
-                // insert the edge point only when it's not added yet
-                if face.contains(&new_point_idx) {
-                    println!("already has the edge point, skip");
-                    continue;
-                }
-
-                // insert edge points
-                //
-                // x-----x      x-----x
-                // |     |      |     |
-                // |  x  |  ->  |     x
-                // |     |      |     |
-                // x-----o      x--x--o
-                face.insert(pos, new_point_idx);
-
-                // result
-                println!(" face {:?}", face);
-            }
-
-            // If the edge point is not yet added, add the new edge containing it
-            // If the edge point is already there, it means the edge is no more useful
-            if new_point_idx != point_idx_opposite {
-                let mut new_edge = [new_point_idx, point_idx_opposite];
-                new_edge.sort();
-
-                let edge = &mut self.edge_indices[edge_idx];
-                std::mem::replace(edge, new_edge);
-            } else {
-                self.edge_indices.remove(edge_idx);
-            }
+        for n in target.neighborings.iter() {
+            self.points[*n] = self.new_points[n];
         }
-
-        for (new_face_idx, &face_idx) in neighborings.faces.iter().enumerate() {
-            // Calculate face point and add it to the points list
-            let new_point_idx = self.face_point_indices[face_idx];
-
-            let face = &mut self.face_indices[face_idx];
-            print!(
-                "Replacing the point with face point of face {} ({:?}) -> ",
-                face_idx, face
-            );
-
-            if !face.contains(&new_point_idx) {
-                // For the first time, replace the point with face point
-                //
-                // x-----x      x-----x
-                // |     |      |     |
-                // |  x  x  ->  |  o--x
-                // |     |      |  |
-                // x--x--o      x--x
-                face.iter_mut().for_each(|i| {
-                    if *i == neighborings.point {
-                        *i = new_point_idx;
-                    }
-                });
-            } else {
-                // If there's already face point, remove the node
-                //
-                // x-----x      x-----x
-                // |     |      |     |
-                // |  x--x  ->  o--x--x
-                // |  |
-                // o--x
-                //
-                // o-----x         x--x
-                // |     |         |  |
-                // |  x--x  ->  x--o--x
-                // |  |         |  |
-                // x--x         x--x
-            }
-
-            // result
-            println!(" face {:?}", face);
-
-            // The face point will be the last point of the new face
-            new_faces[new_face_idx][3] = new_point_idx;
-        }
-
-        {
-            let new_corner = self.get_new_corner(neighborings.point);
-            let original_point = &mut self.points[neighborings.point];
-            std::mem::replace(original_point, new_corner);
-        }
-
-        // 5. Register the new faces and edges
-
-        for new_face in new_faces.iter() {
-            let len = new_face.len();
-            for i in 0..len {
-                let mut edge = [new_face[i], new_face[(i + 1) % len]];
-                edge.sort();
-                self.edge_indices.push(edge);
-            }
-        }
-
-        println!("Generated new_faces: {:?}", new_faces);
-        self.face_indices.append(&mut new_faces);
     }
 }
 
@@ -481,10 +388,9 @@ pub fn calculate_initial_cube() -> Polygon {
 
         face_point_indices: Vec::new(),
         edge_midpoint_indices: Vec::new(),
-        edge_point_indices: Vec::new(),
-        new_corner_indices: Vec::new(),
+        new_points: HashMap::new(),
 
-        unsubdivided_corners: Vec::new(),
+        corner_and_neighborings: Vec::new(),
     };
 
     cube.precalculate_subdivisions();
@@ -502,8 +408,8 @@ fn main() {
     cube.subdivide();
     cube.subdivide();
     cube.subdivide();
-    // cube.subdivide();
-    // cube.subdivide();
+    cube.subdivide();
+    cube.subdivide();
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
 }

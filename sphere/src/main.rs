@@ -454,7 +454,7 @@ impl State {
             self.record = false;
         }
 
-        if self.frame % 50 == 0 {
+        if self.frame % 30 == 0 {
             self.cube.subdivide();
             let (vertex_data, index_data) = self.cube.triangulate();
 
@@ -513,7 +513,7 @@ impl State {
 
         let vp_uniforms = generate_vp_uniforms(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
-            self.frame as f32 / 500.0,
+            self.frame as f32 / 200.0,
         );
         let uniform_buf = self
             .device
