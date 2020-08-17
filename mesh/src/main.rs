@@ -141,7 +141,14 @@ impl Polygon {
         } else {
             [point_idx1, point_idx0]
         };
-        self.edge_indices.iter().position(|p| *p == edge).unwrap()
+
+        match self.edge_indices.iter().position(|p| *p == edge) {
+            Some(v) => v,
+            None => {
+                println!("foo");
+                panic!("foo")
+            }
+        }
     }
 
     pub fn precalculate_subdivisions(&mut self) {
@@ -265,10 +272,12 @@ impl Polygon {
                 let edge_midpoint_left = self.edge_midpoint_indices[edge_left];
 
                 let new_face = vec![face_point, edge_midpoint_right, *point, edge_midpoint_left];
-                new_edges.insert([new_face[0], new_face[1]]);
-                new_edges.insert([new_face[1], new_face[2]]);
-                new_edges.insert([new_face[2], new_face[3]]);
-                new_edges.insert([new_face[3], new_face[0]]);
+
+                for i in 0..4 {
+                    let p0 = new_face[i];
+                    let p1 = new_face[(i + 1) % 4];
+                    new_edges.insert(if p0 < p1 { [p0, p1] } else { [p1, p0] });
+                }
                 new_faces.push(new_face);
 
                 let neighboring_edge_midpoints = match neighboring_edge_midpoints_map.entry(*point)
@@ -304,7 +313,7 @@ impl Polygon {
     pub fn subdivide(&mut self) {
         if self.corner_and_neighborings.len() == 0 {
             println!("Re-calculating");
-            println!("{:#?}", self.face_indices);
+            println!("Current status: -----------------------------------------------------\n\n{:?}\n--------------------------------------------------------\n", self);
             self.precalculate_subdivisions();
         }
         let target = self.corner_and_neighborings.pop().unwrap();
@@ -402,14 +411,8 @@ fn main() {
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
     cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
     println!("{:?}", cube.face_indices);
     println!("{:?}", cube.edge_indices);
+
+    println!("{:?}", 10.0f32.exp());
 }

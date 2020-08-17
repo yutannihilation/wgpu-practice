@@ -48,6 +48,7 @@ pub struct Polygon {
 
     // if the specified corner is in here, do subdivision
     corner_and_neighborings: Vec<CornerNeighborings>,
+    pub n_corners: usize,
 }
 
 impl Polygon {
@@ -141,10 +142,19 @@ impl Polygon {
         } else {
             [point_idx1, point_idx0]
         };
-        self.edge_indices.iter().position(|p| *p == edge).unwrap()
+
+        match self.edge_indices.iter().position(|p| *p == edge) {
+            Some(v) => v,
+            None => {
+                // println!("foo");
+                panic!("foo")
+            }
+        }
     }
 
     pub fn precalculate_subdivisions(&mut self) {
+        self.n_corners = self.points.len();
+
         // Calculate face points
         let mut face_points: Vec<Vec3> = self
             .face_indices
@@ -265,10 +275,12 @@ impl Polygon {
                 let edge_midpoint_left = self.edge_midpoint_indices[edge_left];
 
                 let new_face = vec![face_point, edge_midpoint_right, *point, edge_midpoint_left];
-                new_edges.insert([new_face[0], new_face[1]]);
-                new_edges.insert([new_face[1], new_face[2]]);
-                new_edges.insert([new_face[2], new_face[3]]);
-                new_edges.insert([new_face[3], new_face[0]]);
+
+                for i in 0..4 {
+                    let p0 = new_face[i];
+                    let p1 = new_face[(i + 1) % 4];
+                    new_edges.insert(if p0 < p1 { [p0, p1] } else { [p1, p0] });
+                }
                 new_faces.push(new_face);
 
                 let neighboring_edge_midpoints = match neighboring_edge_midpoints_map.entry(*point)
@@ -282,9 +294,9 @@ impl Polygon {
             }
         }
 
-        println!("new faces: {:?}", new_faces);
-        println!("new edges: {:?}", new_edges);
-        println!("neighborings: {:?}", neighboring_edge_midpoints_map);
+        // println!("new faces: {:?}", new_faces);
+        // println!("new edges: {:?}", new_edges);
+        // println!("neighborings: {:?}", neighboring_edge_midpoints_map);
 
         self.face_indices = new_faces;
         self.edge_indices = new_edges.into_iter().collect();
@@ -303,13 +315,13 @@ impl Polygon {
     // 2. Replace the specified point with the new corner point.
     pub fn subdivide(&mut self) {
         if self.corner_and_neighborings.len() == 0 {
-            println!("Re-calculating");
-            println!("{:#?}", self.face_indices);
+            // println!("Re-calculating");
+            // println!("Current status: -----------------------------------------------------\n\n{:?}\n--------------------------------------------------------\n", self);
             self.precalculate_subdivisions();
         }
         let target = self.corner_and_neighborings.pop().unwrap();
 
-        println!("affected corner and neighborings: {:#?}", target);
+        // println!("affected corner and neighborings: {:#?}", target);
 
         self.points[target.corner] = self.new_points[&target.corner];
 
@@ -380,7 +392,7 @@ pub fn calculate_initial_cube() -> Polygon {
         }
     }
 
-    let len = points.len();
+    let n_points = points.len();
     let mut cube = Polygon {
         points,
         face_indices,
@@ -391,6 +403,7 @@ pub fn calculate_initial_cube() -> Polygon {
         new_points: HashMap::new(),
 
         corner_and_neighborings: Vec::new(),
+        n_corners: n_points,
     };
 
     cube.precalculate_subdivisions();
@@ -399,8 +412,8 @@ pub fn calculate_initial_cube() -> Polygon {
 
 fn main() {
     let mut cube = calculate_initial_cube();
-    println!("{:?}", cube.face_indices);
-    println!("{:?}", cube.edge_indices);
+    // println!("{:?}", cube.face_indices);
+    // println!("{:?}", cube.edge_indices);
     cube.subdivide();
     cube.subdivide();
     cube.subdivide();
@@ -408,8 +421,8 @@ fn main() {
     cube.subdivide();
     cube.subdivide();
     cube.subdivide();
-    // cube.subdivide();
-    // cube.subdivide();
-    println!("{:?}", cube.face_indices);
-    println!("{:?}", cube.edge_indices);
+    cube.subdivide();
+    cube.subdivide();
+    // println!("{:?}", cube.face_indices);
+    // println!("{:?}", cube.edge_indices);
 }

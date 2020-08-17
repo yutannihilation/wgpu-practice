@@ -20,6 +20,9 @@ const SAMPLE_COUNT: u32 = 4;
 
 const IMAGE_DIR: &str = "img";
 
+// Number of frames to finish one iteration of subdivision
+const INTERVAL: u32 = 300;
+
 #[cfg_attr(rustfmt, rustfmt_skip)]
 #[allow(unused)]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -158,6 +161,7 @@ struct State {
     output_dir: std::path::PathBuf,
 
     frame: u32,
+    next_frame: u32,
     record: bool,
 }
 
@@ -259,7 +263,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
-            position: (3.0, -3.0, 3.0, 1.0).into(),
+            position: (23.0, -10.0, 3.0, 1.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         };
         let light_size = std::mem::size_of_val(&light) as u64;
@@ -410,6 +414,7 @@ impl State {
             output_dir,
 
             frame: 0,
+            next_frame: INTERVAL / 4,
             record: false,
         }
     }
@@ -454,8 +459,23 @@ impl State {
             self.record = false;
         }
 
-        if self.frame % 30 == 0 {
-            self.cube.subdivide();
+        // If there is too many points, give up deviding
+        if self.cube.n_corners > 100_000 {
+            return;
+        }
+
+        let mut changed = false;
+        if self.frame >= self.next_frame {
+            for _ in 0..(self.cube.n_corners as f32 / INTERVAL as f32).ceil() as usize {
+                self.cube.subdivide();
+                changed = true;
+            }
+
+            self.next_frame +=
+                (INTERVAL as f32 / (self.cube.n_corners as f32).powf(1.1)).ceil() as u32;
+        }
+
+        if changed {
             let (vertex_data, index_data) = self.cube.triangulate();
 
             self.vertex_buf = self
@@ -513,7 +533,7 @@ impl State {
 
         let vp_uniforms = generate_vp_uniforms(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
-            self.frame as f32 / 200.0,
+            self.frame as f32 / 2000.0,
         );
         let uniform_buf = self
             .device
