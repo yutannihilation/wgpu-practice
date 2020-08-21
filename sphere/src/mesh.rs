@@ -52,8 +52,8 @@ pub struct Polygon {
 }
 
 impl Polygon {
-    pub fn triangulate(&self) -> (Vec<Vertex>, Vec<u16>) {
-        let mut indices: Vec<u16> = Vec::new();
+    pub fn triangulate(&self) -> (Vec<Vertex>, Vec<u32>) {
+        let mut indices: Vec<u32> = Vec::new();
         let mut vertices: Vec<Vertex> = Vec::new();
 
         for f in self.face_indices.iter() {
@@ -93,9 +93,9 @@ impl Polygon {
 
             // Choose combination of three points
             for i in 1..(len - 1) {
-                indices.push(indices_offset as u16);
-                indices.push((indices_offset + i) as u16);
-                indices.push((indices_offset + (i + 1) % len) as u16);
+                indices.push(indices_offset as u32);
+                indices.push((indices_offset + i) as u32);
+                indices.push((indices_offset + (i + 1) % len) as u32);
             }
         }
 
@@ -318,6 +318,7 @@ impl Polygon {
             // println!("Re-calculating");
             // println!("Current status: -----------------------------------------------------\n\n{:?}\n--------------------------------------------------------\n", self);
             self.precalculate_subdivisions();
+            println!("Points: {:?}", self.points.len());
         }
         let target = self.corner_and_neighborings.pop().unwrap();
 

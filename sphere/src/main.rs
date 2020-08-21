@@ -21,7 +21,7 @@ const SAMPLE_COUNT: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 300;
+const INTERVAL: u32 = 150;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 #[allow(unused)]
@@ -512,10 +512,6 @@ impl State {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Texture views
-        let staging_texture_view = self
-            .staging_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
         let png_texture_view = self
             .png_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -816,7 +812,7 @@ fn create_render_pipeline(
         color_states: &v.as_slice(),
         depth_stencil_state: depth_stencil_state,
         vertex_state: wgpu::VertexStateDescriptor {
-            index_format: wgpu::IndexFormat::Uint16,
+            index_format: wgpu::IndexFormat::Uint32,
             vertex_buffers: vertex_buffers,
         },
         sample_count: sample_count,
