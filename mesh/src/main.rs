@@ -128,13 +128,6 @@ impl Polygon {
             .collect()
     }
 
-    fn get_face_point(&self, face_idx: usize) -> Vec3 {
-        self.points[self.face_point_indices[face_idx]]
-    }
-    fn get_edge_midpoint(&self, edge_idx: usize) -> Vec3 {
-        self.points[self.edge_midpoint_indices[edge_idx]]
-    }
-
     fn find_edge_index(&self, point_idx0: usize, point_idx1: usize) -> usize {
         let edge = if point_idx0 < point_idx1 {
             [point_idx0, point_idx1]
@@ -245,7 +238,6 @@ impl Polygon {
         // x-----x      x--x--x
 
         let mut new_faces: Vec<Vec<usize>> = Vec::new();
-        let mut new_edges: Vec<[usize; 2]> = Vec::new();
 
         let mut new_edges: HashSet<[usize; 2]> = HashSet::new();
         let mut neighboring_edge_midpoints_map: HashMap<usize, HashSet<usize>> = HashMap::new();
@@ -389,7 +381,6 @@ pub fn calculate_initial_cube() -> Polygon {
         }
     }
 
-    let len = points.len();
     let mut cube = Polygon {
         points,
         face_indices,

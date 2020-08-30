@@ -8,7 +8,7 @@ layout(location = 1) out vec3 v_normal;
 layout(location = 2) out vec4 v_color;
 
 layout(set = 0, binding = 0) uniform Locals {
-    vec3 u_view_position;
+    vec4 u_view_position;
     mat4 u_view_proj;
 };
 
