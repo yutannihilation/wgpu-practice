@@ -55,11 +55,11 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 81;
+const NUM_INSTANCES: u32 = 9;
 const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 5.0;
-const SHARPNESS: Option<f32> = Some(-0.1);
-const SUBDIVIDE_LIMIT: usize = 10000;
+const SHARPNESS: Option<f32> = Some(2.0);
+const SUBDIVIDE_LIMIT: usize = 1000;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -161,6 +161,7 @@ struct State {
     index_count: usize,
 
     plane_vertex_buf: wgpu::Buffer,
+    plane_instance_buf: wgpu::Buffer,
     plane_index_buf: wgpu::Buffer,
     plane_index_count: usize,
 
@@ -283,7 +284,8 @@ impl State {
                     ty: wgpu::BindingType::StorageBuffer {
                         dynamic: false,
                         min_binding_size: wgpu::BufferSize::new(
-                            (NUM_INSTANCES * instance_size as u32) as _,
+                            instance_size as _,
+                            //     (NUM_INSTANCES * instance_size as u32) as _,
                         ),
                         readonly: true,
                     },
@@ -310,6 +312,16 @@ impl State {
         let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            label: None,
+        });
+
+        let plane_instance_data = [CubeInstanceRaw {
+            model: cgmath::Matrix4::identity(),
+            color: cgmath::vec4(1.0, 1.0, 1.0, 1.0),
+        }];
+        let plane_instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&plane_instance_data),
+            usage: wgpu::BufferUsage::STORAGE,
             label: None,
         });
 
@@ -449,6 +461,7 @@ impl State {
             index_count: index_data.len(),
 
             plane_index_buf,
+            plane_instance_buf,
             plane_vertex_buf,
             plane_index_count: plane_index_data.len(),
 
@@ -603,7 +616,7 @@ impl State {
         );
 
         // Create bind group
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let cube_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -613,6 +626,20 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Buffer(self.instance_buf.slice(..)),
+                },
+            ],
+            label: None,
+        });
+        let plane_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(uniform_buf.slice(..)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(self.plane_instance_buf.slice(..)),
                 },
             ],
             label: None,
@@ -662,12 +689,17 @@ impl State {
 
             // draw cube
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.set_bind_group(0, &cube_bind_group, &[]);
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
+
+            // draw plane
+            render_pass.set_bind_group(0, &plane_bind_group, &[]);
+            render_pass.set_index_buffer(self.plane_index_buf.slice(..));
+            render_pass.set_vertex_buffer(0, self.plane_vertex_buf.slice(..));
+            render_pass.draw_indexed(0..(self.plane_index_count as u32), 0, 0..1);
         }
 
         encoder.copy_texture_to_buffer(
@@ -719,7 +751,7 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: 0 as f32,
+                z: 3.0,
             };
 
             let rotation = if position.is_zero() {
