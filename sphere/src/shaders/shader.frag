@@ -2,6 +2,7 @@
 
 layout(location = 0) in vec3 v_position;
 layout(location = 1) in vec3 v_normal;
+layout(location = 2) in vec4 v_color;
 
 layout(location = 0) out vec4 f_color;
 layout(location = 1) out vec4 png_color;
@@ -9,7 +10,6 @@ layout(location = 1) out vec4 png_color;
 layout(set = 0, binding = 0) uniform Locals {
     vec3 u_view_position;
     mat4 u_view_proj;
-    vec4 u_color;
 };
 
 layout(set = 1, binding = 0) uniform Light {
@@ -18,7 +18,7 @@ layout(set = 1, binding = 0) uniform Light {
 };
 
 void main() {
-    vec4 object_color = u_color;
+    vec4 object_color = v_color;
     // We don't need (or want) much ambient light, so 0.1 is fine
     float ambient_strength = 0.1;
     vec3 ambient_color = light_color * ambient_strength;

@@ -57,8 +57,9 @@ impl BufferDimensions {
 
 const NUM_INSTANCES: u32 = 81;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 1.6;
-const SHARPNESS: Option<f32> = Some(-0.2);
+const INTERVAL_BETWEEN_CUBE: f32 = 5.0;
+const SHARPNESS: Option<f32> = Some(-0.1);
+const SUBDIVIDE_LIMIT: usize = 10000;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -71,6 +72,7 @@ const BG_COLOR: wgpu::Color = wgpu::Color {
 struct CubeInstance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
+    color: cgmath::Vector4<f32>,
 }
 
 impl CubeInstance {
@@ -78,6 +80,7 @@ impl CubeInstance {
         CubeInstanceRaw {
             model: cgmath::Matrix4::from_translation(self.position)
                 * cgmath::Matrix4::from(self.rotation),
+            color: self.color,
         }
     }
 }
@@ -86,6 +89,7 @@ impl CubeInstance {
 #[derive(Copy, Clone)]
 struct CubeInstanceRaw {
     model: cgmath::Matrix4<f32>,
+    color: cgmath::Vector4<f32>,
 }
 
 unsafe impl bytemuck::Pod for CubeInstanceRaw {}
@@ -96,7 +100,6 @@ unsafe impl bytemuck::Zeroable for CubeInstanceRaw {}
 struct Uniforms {
     view_position: cgmath::Vector4<f32>,
     view_proj: cgmath::Matrix4<f32>,
-    color: cgmath::Vector4<f32>,
 }
 //If we want to use bytemuck, we must first implement these two traits
 unsafe impl bytemuck::Zeroable for Uniforms {}
@@ -124,7 +127,6 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     Uniforms {
         view_position: eye.to_homogeneous(),
         view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
-        color: cgmath::vec4((1.0 + (frame as f32 / 200.0).cos()) / 2.0, 0.2, 0.3, 1.0),
     }
 }
 
@@ -262,17 +264,32 @@ impl State {
             usage: wgpu::BufferUsage::INDEX,
         });
 
+        let instance_size = std::mem::size_of::<CubeInstance>();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer {
-                    dynamic: false,
-                    min_binding_size: wgpu::BufferSize::new(64),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: wgpu::BufferSize::new(64),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::StorageBuffer {
+                        dynamic: false,
+                        min_binding_size: wgpu::BufferSize::new(
+                            (NUM_INSTANCES * instance_size as u32) as _,
+                        ),
+                        readonly: true,
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let depth_stencil_state = wgpu::DepthStencilStateDescriptor {
@@ -292,7 +309,7 @@ impl State {
         let instance_data = create_instance_date(0);
         let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
             label: None,
         });
 
@@ -499,7 +516,7 @@ impl State {
         }
 
         // If there is too many points, give up deviding
-        if self.cube.n_corners > 1000 {
+        if self.cube.n_corners > SUBDIVIDE_LIMIT {
             return;
         }
 
@@ -579,21 +596,27 @@ impl State {
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
 
-        // Create bind group
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buf.slice(..)),
-            }],
-            label: None,
-        });
-
         self.queue.write_buffer(
             &self.instance_buf,
             0,
             bytemuck::cast_slice(&create_instance_date(self.frame)),
         );
+
+        // Create bind group
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(uniform_buf.slice(..)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(self.instance_buf.slice(..)),
+                },
+            ],
+            label: None,
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -643,7 +666,6 @@ impl State {
             render_pass.set_bind_group(1, &self.light_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buf.slice(..));
 
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
         }
@@ -711,7 +733,18 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
                 )
             };
 
-            CubeInstance { position, rotation }
+            let color = cgmath::vec4(
+                (1.0 + ((row * frame as i32) as f32 / 200.0).cos()) / 2.0,
+                (1.0 + ((col * frame as i32) as f32 / 200.0).cos()) / 2.0,
+                (1.0 + ((col * frame as i32) as f32 / 200.0).sin()) / 2.0,
+                1.0,
+            );
+
+            CubeInstance {
+                position,
+                rotation,
+                color,
+            }
         })
         .collect();
 
