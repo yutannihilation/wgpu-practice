@@ -24,7 +24,7 @@ out.mp4: img/*.png
 
 out.gif: out.mp4
 	# c.f. https://nico-lab.net/optimized_256_colors_with_ffmpeg/, https://trac.ffmpeg.org/wiki/How%20to%20speed%20up%20/%20slow%20down%20a%20video
-	ffmpeg -y -r 30 -t 13 -i $< -filter_complex 'fps=10,setpts=0.7*PTS,scale=w=iw/2:-1,split[a][b];[a]palettegen[pal];[b][pal]paletteuse' $@
+	ffmpeg -y -r 30 -t 10 -i $< -filter_complex 'fps=10,setpts=0.3*PTS,scale=w=iw/2:-1,split[a][b];[a]palettegen[pal];[b][pal]paletteuse' $@
 
 clean:
 	rm -f out.mp4 out.gif

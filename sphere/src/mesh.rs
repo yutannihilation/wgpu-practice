@@ -49,6 +49,9 @@ pub struct Polygon {
     // if the specified corner is in here, do subdivision
     corner_and_neighborings: Vec<CornerNeighborings>,
     pub n_corners: usize,
+
+    // default: 2
+    sharpness: Option<f32>,
 }
 
 impl Polygon {
@@ -184,7 +187,7 @@ impl Polygon {
                 .fold(Vec3::zero(), |sum, &i| sum + face_points[i]);
 
             let edge_point = (sum_of_face_points + self.points[edge[0]] + self.points[edge[1]])
-                / (neighboring_faces.len() + 2) as f32;
+                / (neighboring_faces.len() as f32 + self.sharpness.unwrap_or(2.0));
 
             edge_points.push(edge_point);
         }
@@ -332,7 +335,7 @@ impl Polygon {
     }
 }
 
-pub fn calculate_initial_cube() -> Polygon {
+pub fn calculate_initial_cube(sharpness: Option<f32>) -> Polygon {
     let directions = [1.0f32, -1.0];
     let axes = [Vec3::unit_x(), Vec3::unit_y(), Vec3::unit_z()];
 
@@ -405,25 +408,37 @@ pub fn calculate_initial_cube() -> Polygon {
 
         corner_and_neighborings: Vec::new(),
         n_corners: n_points,
+
+        sharpness,
     };
 
     cube.precalculate_subdivisions();
     cube
 }
 
-fn main() {
-    let mut cube = calculate_initial_cube();
-    // println!("{:?}", cube.face_indices);
-    // println!("{:?}", cube.edge_indices);
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    cube.subdivide();
-    // println!("{:?}", cube.face_indices);
-    // println!("{:?}", cube.edge_indices);
+pub fn create_plane(size: i32) -> (Vec<Vertex>, Vec<u32>) {
+    let size = size as f32;
+
+    let vertex_data = [
+        Vertex {
+            _pos: [size, -size, 0.0, 1.0],
+            _normal: [0.0, 0.0, 1.0],
+        },
+        Vertex {
+            _pos: [size, size, 0.0, 1.0],
+            _normal: [0.0, 0.0, 1.0],
+        },
+        Vertex {
+            _pos: [-size, -size, 0.0, 1.0],
+            _normal: [0.0, 0.0, 1.0],
+        },
+        Vertex {
+            _pos: [-size, size, 0.0, 1.0],
+            _normal: [0.0, 0.0, 1.0],
+        },
+    ];
+
+    let index_data = &[0, 1, 2, 2, 1, 3];
+
+    (vertex_data.to_vec(), index_data.to_vec())
 }

@@ -21,7 +21,7 @@ const SAMPLE_COUNT: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 150;
+const INTERVAL: u32 = 400;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 #[allow(unused)]
@@ -55,17 +55,27 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 1;
+const NUM_INSTANCES: u32 = 81;
+const SIZE_OF_CUBE: f32 = 2.0;
+const INTERVAL_BETWEEN_CUBE: f32 = 1.6;
+const SHARPNESS: Option<f32> = Some(-0.2);
+
+const BG_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.0,
+    g: 0.22,
+    b: 0.3,
+    a: 1.0,
+};
 
 // The original code is https://sotrh.github.io/learn-wgpu/beginner/tutorial7-instancing/#another-better-way-storage-buffers
-struct Instance {
+struct CubeInstance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
 }
 
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
+impl CubeInstance {
+    fn to_raw(&self) -> CubeInstanceRaw {
+        CubeInstanceRaw {
             model: cgmath::Matrix4::from_translation(self.position)
                 * cgmath::Matrix4::from(self.rotation),
         }
@@ -74,30 +84,36 @@ impl Instance {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct InstanceRaw {
+struct CubeInstanceRaw {
     model: cgmath::Matrix4<f32>,
 }
 
-unsafe impl bytemuck::Pod for InstanceRaw {}
-unsafe impl bytemuck::Zeroable for InstanceRaw {}
+unsafe impl bytemuck::Pod for CubeInstanceRaw {}
+unsafe impl bytemuck::Zeroable for CubeInstanceRaw {}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct Uniforms {
     view_position: cgmath::Vector4<f32>,
     view_proj: cgmath::Matrix4<f32>,
+    color: cgmath::Vector4<f32>,
 }
 //If we want to use bytemuck, we must first implement these two traits
 unsafe impl bytemuck::Zeroable for Uniforms {}
 unsafe impl bytemuck::Pod for Uniforms {}
 
-fn generate_vp_uniforms(aspect_ratio: f32, frame: f32) -> Uniforms {
+fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
+    let rot1 = frame as f32 / 200.0;
 
+    let rot2_max = std::f32::consts::PI / 2.0;
+    let rot2 = rot2_max * ((3000 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
+
+    let distance = 2.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
-        5.0f32 * frame.sin(),
-        -5.0 * frame.cos(),
-        8.0 * (0.2 * frame - 0.1).sin(),
+        distance * rot1.sin() * rot2.sin(),
+        distance * rot1.cos() * rot2.sin(),
+        distance * rot2.cos(),
     );
     let mx_view = cgmath::Matrix4::look_at(
         eye,
@@ -108,6 +124,7 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: f32) -> Uniforms {
     Uniforms {
         view_position: eye.to_homogeneous(),
         view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
+        color: cgmath::vec4((1.0 + (frame as f32 / 200.0).cos()) / 2.0, 0.2, 0.3, 1.0),
     }
 }
 
@@ -140,6 +157,10 @@ struct State {
     instance_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
+
+    plane_vertex_buf: wgpu::Buffer,
+    plane_index_buf: wgpu::Buffer,
+    plane_index_count: usize,
 
     depth_texture: wgpu::Texture,
 
@@ -210,9 +231,9 @@ impl State {
         };
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        // Create the vertex and index buffers
+        // Create vertices and indices buffers of cubes
         let vertex_size = std::mem::size_of::<Vertex>();
-        let mut cube = mesh::calculate_initial_cube();
+        let mut cube = mesh::calculate_initial_cube(SHARPNESS);
         let (vertex_data, index_data) = cube.triangulate();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -224,6 +245,20 @@ impl State {
         let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(&index_data),
+            usage: wgpu::BufferUsage::INDEX,
+        });
+
+        // Create vertices and indices of plane
+        let (plane_vertex_data, plane_index_data) = mesh::create_plane(1000);
+        let plane_vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Plane Vertex Buffer"),
+            contents: bytemuck::cast_slice(&plane_vertex_data),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
+
+        let plane_index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Plane Index Buffer"),
+            contents: bytemuck::cast_slice(&plane_index_data),
             usage: wgpu::BufferUsage::INDEX,
         });
 
@@ -263,7 +298,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let light = Light {
-            position: (23.0, -10.0, 3.0, 1.0).into(),
+            position: (23.0, -10.0, 70.0, 1.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         };
         let light_size = std::mem::size_of_val(&light) as u64;
@@ -316,7 +351,7 @@ impl State {
                 attributes: &vertex_attrs_vertex,
             },
             wgpu::VertexBufferDescriptor {
-                stride: std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+                stride: std::mem::size_of::<CubeInstanceRaw>() as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Instance,
                 attributes: &vertex_attrs_instance,
             },
@@ -396,6 +431,10 @@ impl State {
             index_buf,
             index_count: index_data.len(),
 
+            plane_index_buf,
+            plane_vertex_buf,
+            plane_index_count: plane_index_data.len(),
+
             multisample_texture,
             multisample_png_texture,
 
@@ -460,12 +499,13 @@ impl State {
         }
 
         // If there is too many points, give up deviding
-        if self.cube.n_corners > 100_000 {
+        if self.cube.n_corners > 1000 {
             return;
         }
 
         let mut changed = false;
         if self.frame >= self.next_frame {
+            println!("{}", self.cube.n_corners);
             for _ in 0..(self.cube.n_corners as f32 / INTERVAL as f32).ceil() as usize {
                 self.cube.subdivide();
                 changed = true;
@@ -529,7 +569,7 @@ impl State {
 
         let vp_uniforms = generate_vp_uniforms(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
-            self.frame as f32 / 2000.0,
+            self.frame,
         );
         let uniform_buf = self
             .device
@@ -555,13 +595,6 @@ impl State {
             bytemuck::cast_slice(&create_instance_date(self.frame)),
         );
 
-        let bg_color = wgpu::Color {
-            r: 0.0,
-            g: 0.22,
-            b: 0.3,
-            a: 1.0,
-        };
-
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
@@ -569,7 +602,7 @@ impl State {
                         attachment: &multisample_texture_view,
                         resolve_target: Some(&frame.output.view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(bg_color),
+                            load: wgpu::LoadOp::Clear(BG_COLOR),
                             store: true,
                         },
                     },
@@ -577,7 +610,7 @@ impl State {
                         attachment: &multisample_png_texture_view,
                         resolve_target: Some(&png_texture_view),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(bg_color),
+                            load: wgpu::LoadOp::Clear(BG_COLOR),
                             store: true,
                         },
                     },
@@ -653,13 +686,18 @@ impl State {
     }
 }
 
-fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
-    let instances: Vec<Instance> = (0..NUM_INSTANCES)
+fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
+    let width = (NUM_INSTANCES as f32).sqrt().round() as u32;
+    let offset = (width / 2) as i32;
+
+    let instances: Vec<CubeInstance> = (0..NUM_INSTANCES)
         .map(|x| {
+            let row = (x / width) as i32;
+            let col = (x % width) as i32;
             let position = cgmath::Vector3 {
-                x: ((x + 1) * frame) as f32 / 80000.0,
-                y: ((x + 2) * frame) as f32 / 70000.0,
-                z: ((x + 3) * frame) as f32 / 120000.0,
+                x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
+                y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
+                z: 0 as f32,
             };
 
             let rotation = if position.is_zero() {
@@ -669,15 +707,18 @@ fn create_instance_date(frame: u32) -> Vec<InstanceRaw> {
             } else {
                 cgmath::Quaternion::from_axis_angle(
                     position.clone().normalize(),
-                    cgmath::Deg(((x + 1) * frame) as f32),
+                    cgmath::Deg(frame as f32),
                 )
             };
 
-            Instance { position, rotation }
+            CubeInstance { position, rotation }
         })
         .collect();
 
-    instances.iter().map(Instance::to_raw).collect::<Vec<_>>()
+    instances
+        .iter()
+        .map(CubeInstance::to_raw)
+        .collect::<Vec<_>>()
 }
 
 fn create_texture(

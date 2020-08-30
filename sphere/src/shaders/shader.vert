@@ -11,6 +11,7 @@ layout(location = 1) out vec3 v_normal;
 layout(set = 0, binding = 0) uniform Locals {
     vec3 u_view_position;
     mat4 u_view_proj;
+    vec4 u_color;
 };
 
 void main() {
