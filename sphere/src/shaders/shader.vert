@@ -12,8 +12,7 @@ layout(set = 0, binding = 0) uniform Locals {
     mat4 u_view_proj;
 };
 
-struct Data
-{
+struct Data {
   mat4 s_models;
   vec4 s_color;
 };

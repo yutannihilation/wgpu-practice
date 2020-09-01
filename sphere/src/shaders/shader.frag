@@ -16,6 +16,26 @@ layout(set = 1, binding = 0) uniform Light {
     vec4 light_position;
     vec3 light_color;
 };
+layout(set = 1, binding = 1) uniform texture2DArray t_Shadow;
+layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
+
+// original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
+float fetch_shadow(int light_id, vec4 homogeneous_coords) {
+    if (homogeneous_coords.w <= 0.0) {
+        return 1.0;
+    }
+    // compensate for the Y-flip difference between the NDC and texture coordinates
+    const vec2 flip_correction = vec2(0.5, -0.5);
+    // compute texture coordinates for shadow lookup
+    vec4 light_local = vec4(
+        homogeneous_coords.xy * flip_correction/homogeneous_coords.w + 0.5,
+        light_id,
+        homogeneous_coords.z / homogeneous_coords.w
+    );
+    // do the lookup, using HW PCF and comparison
+    return texture(sampler2DArrayShadow(t_Shadow, s_Shadow), light_local);
+}
+
 
 void main() {
     vec4 object_color = v_color;
@@ -26,8 +46,10 @@ void main() {
     vec3 normal = normalize(v_normal);
     vec3 light_dir = normalize(light_position.xyz - v_position);
 
+    float shadow = fetch_shadow(0, u_view_proj * vec4(v_position, 1.0));
+
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
-    vec3 diffuse_color = light_color * diffuse_strength;
+    vec3 diffuse_color = shadow * light_color * diffuse_strength;
 
     vec3 view_dir = normalize(u_view_position.xyz - v_position);
     vec3 reflect_dir = reflect(-light_dir, normal);
