@@ -60,7 +60,7 @@ const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 1.0;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
-const PLANE_SIZE: u32 = 10;
+const PLANE_SIZE: u32 = 20;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -111,9 +111,10 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     let rot1 = (frame + 400) as f32 / 200.0;
 
     let rot2_max = std::f32::consts::PI / 4.0;
-    let rot2 = rot2_max * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
+    let rot2 = rot2_max;
+    // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 10.0f32 + (frame as f32 / 200.0);
+    let distance = 10.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -155,7 +156,7 @@ unsafe impl bytemuck::Zeroable for LightRaw {}
 impl Light {
     fn new() -> Self {
         Self {
-            position: (1.0, 1.0, 30.0).into(),
+            position: (3.0, 1.0, 20.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         }
     }
@@ -166,7 +167,7 @@ impl Light {
             cgmath::Point3::origin(),
             cgmath::Vector3::unit_z(),
         );
-        let mx_projection = cgmath::perspective(cgmath::Deg(60.0), 1.0, 1.0, 50.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(60.0), 1.0, 1.0, 100.0);
         LightRaw {
             view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
             position: self.position.to_homogeneous(),
@@ -391,7 +392,7 @@ impl State {
                         binding: 1,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: true,
+                            multisampled: false,
                             component_type: wgpu::TextureComponentType::DepthComparison,
                             dimension: wgpu::TextureViewDimension::D2Array,
                         },
@@ -426,7 +427,7 @@ impl State {
                 depth: 1,
             },
             mip_level_count: 1,
-            sample_count: SAMPLE_COUNT,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
@@ -565,7 +566,7 @@ impl State {
                 clamp_depth: device.features().contains(wgpu::Features::DEPTH_CLAMPING),
             }),
             &vertex_buffers,
-            SAMPLE_COUNT,
+            1,
             vec![],
             Some(shadow_depth_stencil_state),
         );
@@ -675,8 +676,6 @@ impl State {
     }
 
     fn update(&mut self) {
-        println!("frame: {}", self.frame);
-
         self.frame += 1;
         if self.record && (self.frame >= 1000) {
             println!("End recording");
@@ -935,10 +934,11 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
         .map(|x| {
             let row = (x / width) as i32;
             let col = (x % width) as i32;
+            let phase = (row * col) as f32 * std::f32::consts::PI / 2.0;
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: 3.0,
+                z: 3.0 + 3.0 * (frame as f32 / 100.0 + phase).sin(),
             };
 
             let rotation = if position.is_zero() {
