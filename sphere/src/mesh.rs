@@ -76,7 +76,8 @@ impl Polygon {
             let normal_unnormalized = v0.cross(v1);
 
             // Normal vector might goes outer or inner. Make sure it goes to the opposite side of (0, 0, 0).
-            let normal = if normal_unnormalized.dot(Vec3::zero() - p1) > 0.0 {
+            let reverse = normal_unnormalized.dot(Vec3::zero() - p1) > 0.0;
+            let normal = if reverse {
                 -normal_unnormalized.normalize()
             } else {
                 normal_unnormalized.normalize()
@@ -96,9 +97,16 @@ impl Polygon {
 
             // Choose combination of three points
             for i in 1..(len - 1) {
-                indices.push(indices_offset as u32);
-                indices.push((indices_offset + i) as u32);
-                indices.push((indices_offset + (i + 1) % len) as u32);
+                // indices needs to be added to make sure the triangle is clockwise
+                if !reverse {
+                    indices.push(indices_offset as u32);
+                    indices.push((indices_offset + i) as u32);
+                    indices.push((indices_offset + (i + 1) % len) as u32);
+                } else {
+                    indices.push((indices_offset + (i + 1) % len) as u32);
+                    indices.push((indices_offset + i) as u32);
+                    indices.push(indices_offset as u32);
+                }
             }
         }
 
