@@ -27,14 +27,25 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords) {
     }
     // compensate for the Y-flip difference between the NDC and texture coordinates
     const vec2 flip_correction = vec2(0.5, -0.5);
-    // compute texture coordinates for shadow lookup
-    vec4 light_local = vec4(
-        homogeneous_coords.xy * flip_correction/homogeneous_coords.w + 0.5,
-        light_id,
-        homogeneous_coords.z / homogeneous_coords.w
-    );
-    // do the lookup, using HW PCF and comparison
-    return texture(sampler2DArrayShadow(t_Shadow, s_Shadow), light_local);
+
+    float shadow = 0.0;
+    
+    vec3 texel_size = 1.0 / textureSize(sampler2DArrayShadow(t_Shadow, s_Shadow), 0);
+
+    for (int x = -10; x <= 10; ++x) {
+        for (int y = -10; y <= 10; ++y) {
+            // compute texture coordinates for shadow lookup
+            vec4 light_local = vec4(
+                (homogeneous_coords.xy + vec2(x, y) * texel_size.xy) * flip_correction/homogeneous_coords.w + 0.5,
+                light_id,
+                homogeneous_coords.z / homogeneous_coords.w
+            );
+            // do the lookup, using HW PCF and comparison
+            shadow += texture(sampler2DArrayShadow(t_Shadow, s_Shadow), light_local);
+        }    
+    }
+
+    return shadow / 9.0;
 }
 
 

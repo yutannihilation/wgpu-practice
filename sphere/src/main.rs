@@ -55,12 +55,12 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 9;
+const NUM_INSTANCES: u32 = 64;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 1.0;
+const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
-const PLANE_SIZE: u32 = 20;
+const PLANE_SIZE: u32 = 1000;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -107,14 +107,14 @@ unsafe impl bytemuck::Zeroable for Uniforms {}
 unsafe impl bytemuck::Pod for Uniforms {}
 
 fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
-    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 1000.0);
+    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
     let rot2_max = std::f32::consts::PI / 4.0;
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 10.0f32 + (frame as f32 / 50.0);
+    let distance = 20.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -156,7 +156,7 @@ unsafe impl bytemuck::Zeroable for LightRaw {}
 impl Light {
     fn new() -> Self {
         Self {
-            position: (3.0, 1.0, 20.0).into(),
+            position: (3.0, 1.0, 100.0).into(),
             color: (1.0, 1.0, 1.0).into(),
         }
     }
@@ -167,7 +167,7 @@ impl Light {
             cgmath::Point3::origin(),
             cgmath::Vector3::unit_z(),
         );
-        let mx_projection = cgmath::perspective(cgmath::Deg(60.0), 1.0, 1.0, 100.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(30.0), 1.0, 80.0, 120.0);
         LightRaw {
             view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
             position: self.position.to_homogeneous(),
