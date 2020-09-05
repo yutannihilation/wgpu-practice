@@ -416,7 +416,7 @@ pub fn calculate_initial_cube(sharpness: Option<f32>) -> Polygon {
     cube
 }
 
-pub fn create_plane(size: i32) -> (Vec<Vertex>, Vec<u32>) {
+pub fn create_plane(size: u32) -> (Vec<Vertex>, Vec<u32>) {
     let size = size as f32;
 
     let vertex_data = [

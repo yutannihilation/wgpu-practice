@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform Locals {
 };
 
 layout(set = 1, binding = 0) uniform Light {
+    mat4 light_view_proj;
     vec4 light_position;
     vec3 light_color;
 };
@@ -46,7 +47,7 @@ void main() {
     vec3 normal = normalize(v_normal);
     vec3 light_dir = normalize(light_position.xyz - v_position);
 
-    float shadow = fetch_shadow(0, u_view_proj * vec4(v_position, 1.0));
+    float shadow = fetch_shadow(0, light_view_proj * vec4(v_position, 1.0));
 
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
     vec3 diffuse_color = shadow * light_color * diffuse_strength;

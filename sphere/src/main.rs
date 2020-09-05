@@ -21,7 +21,7 @@ const SAMPLE_COUNT: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 1000;
+const INTERVAL: u32 = 100000;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 #[allow(unused)]
@@ -55,11 +55,12 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 49;
+const NUM_INSTANCES: u32 = 9;
 const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 1.0;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
+const PLANE_SIZE: u32 = 10;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -106,23 +107,20 @@ unsafe impl bytemuck::Zeroable for Uniforms {}
 unsafe impl bytemuck::Pod for Uniforms {}
 
 fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
-    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 100.0);
+    let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 1000.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
-    let rot2_max = std::f32::consts::PI / 2.0;
-    let rot2 = rot2_max * ((3000 - std::cmp::min(frame + 1200, 3000)) as f32 / 3000.0).powi(3);
+    let rot2_max = std::f32::consts::PI / 4.0;
+    let rot2 = rot2_max * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 20.0f32 + (frame as f32 / 50.0);
+    let distance = 10.0f32 + (frame as f32 / 200.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
         distance * rot2.cos(),
     );
-    let mx_view = cgmath::Matrix4::look_at(
-        eye,
-        cgmath::Point3::new(0f32, 0.0, 0.0),
-        cgmath::Vector3::unit_z(),
-    );
+    let mx_view =
+        cgmath::Matrix4::look_at(eye, cgmath::Point3::origin(), cgmath::Vector3::unit_z());
 
     Uniforms {
         view_position: eye.to_homogeneous(),
@@ -134,14 +132,48 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Light {
-    // Though we only need vec3, due to uniforms requiring 16 byte (4 float) spacing,
-    // use vec4 to align with the requirement
-    position: cgmath::Vector4<f32>,
+    position: cgmath::Point3<f32>,
     color: cgmath::Vector3<f32>,
 }
 
 unsafe impl bytemuck::Zeroable for Light {}
 unsafe impl bytemuck::Pod for Light {}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct LightRaw {
+    // Though we only need vec3, due to uniforms requiring 16 byte (4 float) spacing,
+    // use vec4 to align with the requirement
+    view_proj: cgmath::Matrix4<f32>,
+    position: cgmath::Vector4<f32>,
+    color: cgmath::Vector3<f32>,
+}
+
+unsafe impl bytemuck::Pod for LightRaw {}
+unsafe impl bytemuck::Zeroable for LightRaw {}
+
+impl Light {
+    fn new() -> Self {
+        Self {
+            position: (1.0, 1.0, 30.0).into(),
+            color: (1.0, 1.0, 1.0).into(),
+        }
+    }
+
+    fn to_raw(&self) -> LightRaw {
+        let mx_view = cgmath::Matrix4::look_at(
+            self.position,
+            cgmath::Point3::origin(),
+            cgmath::Vector3::unit_z(),
+        );
+        let mx_projection = cgmath::perspective(cgmath::Deg(60.0), 1.0, 1.0, 50.0);
+        LightRaw {
+            view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
+            position: self.position.to_homogeneous(),
+            color: self.color,
+        }
+    }
+}
 
 struct State {
     surface: wgpu::Surface,
@@ -173,6 +205,7 @@ struct State {
 
     // shadow
     shadow_bind_group: wgpu::BindGroup,
+    shadow_texture: wgpu::Texture,
     shadow_target_view: wgpu::TextureView,
     shadow_render_pipeline: wgpu::RenderPipeline,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
@@ -257,7 +290,7 @@ impl State {
         });
 
         // Create vertices and indices of plane
-        let (plane_vertex_data, plane_index_data) = mesh::create_plane(1000);
+        let (plane_vertex_data, plane_index_data) = mesh::create_plane(PLANE_SIZE);
         let plane_vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Plane Vertex Buffer"),
             contents: bytemuck::cast_slice(&plane_vertex_data),
@@ -332,11 +365,8 @@ impl State {
         });
 
         // Light ------------------------------------------------------------------------------------------------------------
-        let light = Light {
-            position: (0.0, 200.0, 10.0, 1.0).into(),
-            color: (1.0, 1.0, 1.0).into(),
-        };
-        let light_size = std::mem::size_of_val(&light) as u64;
+        let light = Light::new().to_raw();
+        let light_size = std::mem::size_of::<LightRaw>() as u64;
 
         // We'll want to update our lights position, so we use COPY_DST
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -399,7 +429,9 @@ impl State {
             sample_count: SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+                | wgpu::TextureUsage::SAMPLED
+                | wgpu::TextureUsage::COPY_SRC,
             label: None,
         });
 
@@ -501,7 +533,6 @@ impl State {
                 label: None,
             });
 
-        // TODO
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &shadow_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -596,6 +627,7 @@ impl State {
             shadow_bind_group_layout,
             shadow_bind_group,
             shadow_target_view,
+            shadow_texture,
             png_texture,
             png_buffer,
             png_dimensions,
@@ -643,6 +675,8 @@ impl State {
     }
 
     fn update(&mut self) {
+        println!("frame: {}", self.frame);
+
         self.frame += 1;
         if self.record && (self.frame >= 1000) {
             println!("End recording");
@@ -657,7 +691,6 @@ impl State {
 
         let mut changed = false;
         if self.frame >= self.next_frame {
-            println!("{}", self.cube.n_corners);
             for _ in 0..(self.cube.n_corners as f32 / INTERVAL as f32).ceil() as usize {
                 self.cube.subdivide();
                 changed = true;
@@ -781,8 +814,9 @@ impl State {
                 }),
             });
 
-            // draw cube
             render_pass.set_pipeline(&self.shadow_render_pipeline);
+
+            // draw cube
             render_pass.set_bind_group(0, &cube_bind_group, &[]);
             render_pass.set_bind_group(1, &self.shadow_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
@@ -838,8 +872,9 @@ impl State {
 
             // render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
 
-            // draw cube
             render_pass.set_pipeline(&self.render_pipeline);
+
+            // draw cube
             render_pass.set_bind_group(0, &cube_bind_group, &[]);
             render_pass.set_bind_group(1, &self.global_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
@@ -856,6 +891,7 @@ impl State {
         encoder.copy_texture_to_buffer(
             wgpu::TextureCopyView {
                 texture: &self.png_texture,
+                // texture: &self.shadow_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
@@ -902,7 +938,7 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: 1.0,
+                z: 3.0,
             };
 
             let rotation = if position.is_zero() {

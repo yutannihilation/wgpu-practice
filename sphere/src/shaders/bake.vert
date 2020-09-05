@@ -2,11 +2,6 @@
 
 layout(location = 0) in vec4 a_position;
 
-layout(set = 0, binding = 0) uniform Locals {
-    vec4 u_view_position;
-    mat4 u_view_proj;
-};
-
 struct Data {
   mat4 s_models;
   vec4 s_color;
@@ -16,6 +11,12 @@ layout(set = 0, binding = 1) buffer Instances {
     Data[] data;
 };
 
+layout(set = 1, binding = 0) uniform Light {
+    mat4 light_view_proj;
+    vec4 light_position;
+    vec3 light_color;
+};
+
 void main() {
-    gl_Position = u_view_proj * data[gl_InstanceIndex].s_models * a_position;
+    gl_Position = light_view_proj * data[gl_InstanceIndex].s_models * a_position;
 }
