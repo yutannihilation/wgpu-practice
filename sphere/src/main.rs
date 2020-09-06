@@ -254,7 +254,7 @@ impl State {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::default(),
+                    features: wgpu::Features::default() | wgpu::Features::DEPTH_CLAMPING,
                     limits: wgpu::Limits::default(),
                     shader_validation: true,
                 },
