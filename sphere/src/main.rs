@@ -12,6 +12,8 @@ use futures::executor::block_on;
 
 use wgpu::util::DeviceExt;
 
+use bytemuck::{Pod, Zeroable};
+
 mod mesh;
 use mesh::Vertex;
 
@@ -55,7 +57,7 @@ impl BufferDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 64;
+const NUM_INSTANCES: u32 = 9;
 const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
 const SHARPNESS: Option<f32> = Some(2.0);
@@ -78,33 +80,28 @@ struct CubeInstance {
 
 impl CubeInstance {
     fn to_raw(&self) -> CubeInstanceRaw {
+        let model =
+            cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation);
         CubeInstanceRaw {
-            model: cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(self.rotation),
-            color: self.color,
+            model: model.into(),
+            color: self.color.into(),
         }
     }
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct CubeInstanceRaw {
-    model: cgmath::Matrix4<f32>,
-    color: cgmath::Vector4<f32>,
+    model: [[f32; 4]; 4],
+    color: [f32; 4],
 }
-
-unsafe impl bytemuck::Pod for CubeInstanceRaw {}
-unsafe impl bytemuck::Zeroable for CubeInstanceRaw {}
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct Uniforms {
-    view_position: cgmath::Vector4<f32>,
-    view_proj: cgmath::Matrix4<f32>,
+    view_position: [f32; 4],
+    view_proj: [[f32; 4]; 4],
 }
-//If we want to use bytemuck, we must first implement these two traits
-unsafe impl bytemuck::Zeroable for Uniforms {}
-unsafe impl bytemuck::Pod for Uniforms {}
 
 fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
@@ -114,7 +111,7 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 20.0f32 + (frame as f32 / 50.0);
+    let distance = 2.0f32 + (frame as f32 / 100.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -124,21 +121,18 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
         cgmath::Matrix4::look_at(eye, cgmath::Point3::origin(), cgmath::Vector3::unit_z());
 
     Uniforms {
-        view_position: eye.to_homogeneous(),
-        view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
+        view_position: eye.to_homogeneous().into(),
+        view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
     }
 }
 
 // main.rs
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Clone, Copy)]
 struct Light {
     position: cgmath::Point3<f32>,
     color: cgmath::Vector3<f32>,
 }
-
-unsafe impl bytemuck::Zeroable for Light {}
-unsafe impl bytemuck::Pod for Light {}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -167,7 +161,7 @@ impl Light {
             cgmath::Point3::origin(),
             cgmath::Vector3::unit_z(),
         );
-        let mx_projection = cgmath::perspective(cgmath::Deg(30.0), 1.0, 80.0, 120.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(60.0), 1.0, 10.0, 200.0);
         LightRaw {
             view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
             position: self.position.to_homogeneous(),
@@ -356,8 +350,8 @@ impl State {
         });
 
         let plane_instance_data = [CubeInstanceRaw {
-            model: cgmath::Matrix4::identity(),
-            color: cgmath::vec4(0.78, 1.0, 1.0, 1.0),
+            model: cgmath::Matrix4::identity().into(),
+            color: cgmath::vec4(0.78, 1.0, 1.0, 1.0).into(),
         }];
         let plane_instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&plane_instance_data),
@@ -934,11 +928,12 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
         .map(|x| {
             let row = (x / width) as i32;
             let col = (x % width) as i32;
-            let phase = (row * col) as f32 * std::f32::consts::PI / 2.0;
+            let phase = (5 * row + 3 * col + 2 * row * col) as f32 * std::f32::consts::PI / 30.0;
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: 3.0 + 3.0 * (frame as f32 / 100.0 + phase).sin(),
+                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin())
+                    * if row * col == 1 { 10.0 } else { 1.0 },
             };
 
             let rotation = if position.is_zero() {

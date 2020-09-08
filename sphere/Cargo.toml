@@ -10,7 +10,7 @@ edition = "2018"
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs" }
 # wgpu = "0.6.0"
 winit = "0.22.2"
-bytemuck = "1.2.0"
+bytemuck = { version = "1.4", features = ["derive"] } 
 futures = "0.3.5"
 png = "0.16.7"
 cgmath = "0.17.0"

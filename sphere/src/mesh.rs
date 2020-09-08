@@ -3,16 +3,15 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use bytemuck::{Pod, Zeroable};
+
 // Code is from https://github.com/gfx-rs/wgpu-rs/blob/master/examples/cube/main.rs
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Vertex {
     _pos: [f32; 4],
     _normal: [f32; 3],
 }
-
-unsafe impl bytemuck::Pod for Vertex {}
-unsafe impl bytemuck::Zeroable for Vertex {}
 
 // Since Vec3 (or float generally) doesn't support Hash, we need an integer version
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
