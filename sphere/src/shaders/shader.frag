@@ -20,7 +20,7 @@ layout(set = 1, binding = 0) uniform Light {
 layout(set = 1, binding = 1) uniform texture2D t_Shadow;
 layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
 
-const int pcf_size = 1;
+const int pcf_size = 25;
 
 // original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
 float fetch_shadow(vec4 homogeneous_coords) {
@@ -42,18 +42,26 @@ float fetch_shadow(vec4 homogeneous_coords) {
     vec2 texel_size = 1.0 / vec2(textureSize(sampler2DShadow(t_Shadow, s_Shadow), 0));
 
     for (int x = -pcf_size; x <= pcf_size; ++x) {
-        for (int y = -pcf_size; y <= pcf_size; ++y) {
-            // compute texture coordinates for shadow lookup
-            vec3 light_local = vec3(
-                (homogeneous_coords.xy + vec2(x, y) * texel_size) * flip_correction/homogeneous_coords.w + 0.5,
-                z_local
-            );
-            // do the lookup, using HW PCF and comparison
-            shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
-        }
+        // compute texture coordinates for shadow lookup
+        vec3 light_local = vec3(
+            (homogeneous_coords.xy + vec2(x, 0) * texel_size) * flip_correction/homogeneous_coords.w + 0.5,
+            z_local
+        );
+        // do the lookup, using HW PCF and comparison
+        shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
     }
 
-    return shadow / pow(2 * pcf_size + 1, 2);
+    for (int y = -pcf_size; y <= pcf_size; ++y) {
+        // compute texture coordinates for shadow lookup
+        vec3 light_local = vec3(
+            (homogeneous_coords.xy + vec2(0, y) * texel_size) * flip_correction/homogeneous_coords.w + 0.5,
+            z_local
+        );
+        // do the lookup, using HW PCF and comparison
+        shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
+    }
+
+    return shadow / (2 * pcf_size + 1) / 2;
 }
 
 
