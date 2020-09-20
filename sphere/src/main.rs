@@ -388,7 +388,7 @@ impl State {
                         ty: wgpu::BindingType::SampledTexture {
                             multisampled: false,
                             component_type: wgpu::TextureComponentType::DepthComparison,
-                            dimension: wgpu::TextureViewDimension::D2Array,
+                            dimension: wgpu::TextureViewDimension::D2,
                         },
                         count: None,
                     },

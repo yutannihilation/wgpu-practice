@@ -17,13 +17,13 @@ layout(set = 1, binding = 0) uniform Light {
     vec4 light_position;
     vec3 light_color;
 };
-layout(set = 1, binding = 1) uniform texture2DArray t_Shadow;
+layout(set = 1, binding = 1) uniform texture2D t_Shadow;
 layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
 
 const int pcf_size = 1;
 
 // original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
-float fetch_shadow(int light_id, vec4 homogeneous_coords) {
+float fetch_shadow(vec4 homogeneous_coords) {
     if (homogeneous_coords.w <= 0.0) {
         return 1.0;
     }
@@ -39,18 +39,17 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords) {
 
     float shadow = 0.0;
     
-    vec2 texel_size = 1.0 / vec2(textureSize(sampler2DArrayShadow(t_Shadow, s_Shadow), 0));
+    vec2 texel_size = 1.0 / vec2(textureSize(sampler2DShadow(t_Shadow, s_Shadow), 0));
 
     for (int x = -pcf_size; x <= pcf_size; ++x) {
         for (int y = -pcf_size; y <= pcf_size; ++y) {
             // compute texture coordinates for shadow lookup
-            vec4 light_local = vec4(
+            vec3 light_local = vec3(
                 (homogeneous_coords.xy + vec2(x, y) * texel_size) * flip_correction/homogeneous_coords.w + 0.5,
-                light_id,
                 z_local
             );
             // do the lookup, using HW PCF and comparison
-            shadow += texture(sampler2DArrayShadow(t_Shadow, s_Shadow), light_local);
+            shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
         }
     }
 
@@ -67,7 +66,7 @@ void main() {
     vec3 normal = normalize(v_normal);
     vec3 light_dir = normalize(light_position.xyz - v_position);
 
-    float shadow = fetch_shadow(0, light_view_proj * vec4(v_position, 1.0));
+    float shadow = fetch_shadow(light_view_proj * vec4(v_position, 1.0));
 
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
     vec3 diffuse_color = shadow * light_color * diffuse_strength;
