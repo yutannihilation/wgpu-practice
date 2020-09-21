@@ -194,7 +194,7 @@ struct State {
     plane_index_buf: wgpu::Buffer,
     plane_index_count: usize,
 
-    depth_texture: wgpu::Texture,
+    depth_texture_view: wgpu::TextureView,
 
     globals_bind_group: wgpu::BindGroup,
     globals_buffer: wgpu::Buffer,
@@ -598,19 +598,17 @@ impl State {
         );
 
         // MSAA --------------------------------------------------------------------------------------------------------
-        let multisample_texture =
-            create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format);
         let multisample_texture_view =
-            multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let multisample_png_texture =
-            create_multisampled_framebuffer(&device, &sc_desc, wgpu::TextureFormat::Rgba8UnormSrgb);
         let multisample_png_texture_view =
-            multisample_png_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            create_multisampled_framebuffer(&device, &sc_desc, wgpu::TextureFormat::Rgba8UnormSrgb)
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Depth texture ----------------------------------------------------------------------------------------------------
-        let depth_texture = create_depth_texture(&device, &sc_desc);
-
+        let depth_texture_view = create_depth_texture(&device, &sc_desc)
+            .create_view(&wgpu::TextureViewDescriptor::default());
         // PNG output ----------------------------------------------------------------------------------------------------
 
         // Output dir
@@ -649,7 +647,7 @@ impl State {
             multisample_texture_view,
             multisample_png_texture_view,
 
-            depth_texture,
+            depth_texture_view,
 
             globals_bind_group,
             globals_buffer,
@@ -686,20 +684,19 @@ impl State {
 
         self.staging_texture = create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format);
 
-        let multisample_texture =
-            create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format);
-        self.multisample_png_texture_view =
-            multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.multisample_texture_view =
+            create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let multisample_png_texture = create_multisampled_framebuffer(
+        self.multisample_png_texture_view = create_multisampled_framebuffer(
             &self.device,
             &self.sc_desc,
             wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        self.multisample_png_texture_view =
-            multisample_png_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        )
+        .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.depth_texture = create_depth_texture(&self.device, &self.sc_desc);
+        self.depth_texture_view = create_depth_texture(&self.device, &self.sc_desc)
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let (png_dimensions, png_buffer, png_texture) = create_png_texture_and_buffer(
             &self.device,
@@ -779,10 +776,6 @@ impl State {
 
         let png_texture_view = self
             .png_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let depth_texture_view = self
-            .depth_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let vp_uniforms = generate_global_uniform(
@@ -903,7 +896,7 @@ impl State {
                     },
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &depth_texture_view,
+                    attachment: &self.depth_texture_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,
