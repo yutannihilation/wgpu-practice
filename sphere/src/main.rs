@@ -58,9 +58,9 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 9;
+const NUM_INSTANCES: u32 = 81;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
+const INTERVAL_BETWEEN_CUBE: f32 = 1.0;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
 const PLANE_SIZE: u32 = 1000;
@@ -114,7 +114,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 10.0f32 + (frame as f32 / 100.0);
+    let distance = 15.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -955,8 +955,7 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin())
-                    * if row * col == 1 { 10.0 } else { 1.0 },
+                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * 4.0,
             };
 
             let rotation = if position.is_zero() {
@@ -970,12 +969,8 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
                 )
             };
 
-            let color = cgmath::vec4(
-                (1.0 + ((row * frame as i32) as f32 / 800.0).cos()) / 2.0,
-                (1.0 + ((col * frame as i32) as f32 / 800.0).cos()) / 2.0,
-                (1.0 + ((col * frame as i32) as f32 / 800.0).sin()) / 2.0,
-                1.0,
-            );
+            let a = (1.0 + (((13 * row + 7 * col) % 12) as f32).sin()) / 2.0;
+            let color = cgmath::vec4(a, a, a, 1.0);
 
             CubeInstance {
                 position,
