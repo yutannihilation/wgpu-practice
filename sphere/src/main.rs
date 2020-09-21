@@ -19,7 +19,7 @@ use mesh::Vertex;
 
 // sample count for MSAA
 const SAMPLE_COUNT: u32 = 4;
-const SHADOW_SAMPLE_COUNT: u32 = 1;
+const SHADOW_RES: u32 = 4;
 
 const IMAGE_DIR: &str = "img";
 
@@ -385,7 +385,7 @@ impl State {
                         binding: 1,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: SHADOW_SAMPLE_COUNT > 1,
+                            multisampled: false,
                             component_type: wgpu::TextureComponentType::DepthComparison,
                             dimension: wgpu::TextureViewDimension::D2,
                         },
@@ -415,12 +415,12 @@ impl State {
         });
         let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
-                width: sc_desc.width,
-                height: sc_desc.height,
+                width: sc_desc.width * SHADOW_RES,
+                height: sc_desc.height * SHADOW_RES,
                 depth: 1,
             },
             mip_level_count: 1,
-            sample_count: SHADOW_SAMPLE_COUNT,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
@@ -560,7 +560,7 @@ impl State {
                 polygon_mode: wgpu::PolygonMode::Fill,
             }),
             &vertex_buffers,
-            SHADOW_SAMPLE_COUNT,
+            1,
             vec![],
             Some(shadow_depth_stencil_state),
         );
