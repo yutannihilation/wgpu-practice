@@ -99,12 +99,14 @@ struct CubeInstanceRaw {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Camera {
+struct Globals {
     position: [f32; 4],
     view_proj: [[f32; 4]; 4],
+    num_of_lights: u32,
+    _padding: [u32; 3],
 }
 
-fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Camera {
+fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Globals {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
@@ -121,9 +123,11 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Camera {
     let mx_view =
         cgmath::Matrix4::look_at(eye, cgmath::Point3::origin(), cgmath::Vector3::unit_z());
 
-    Camera {
+    Globals {
         position: eye.to_homogeneous().into(),
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
+        num_of_lights: 1,
+        _padding: [0, 0, 0],
     }
 }
 
@@ -196,6 +200,7 @@ struct State {
     depth_texture: wgpu::Texture,
 
     global_bind_group: wgpu::BindGroup,
+    lights: Vec<Light>,
     light_buffer: wgpu::Buffer,
     light_render_pipeline: wgpu::RenderPipeline,
 
@@ -216,6 +221,8 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
 
     output_dir: std::path::PathBuf,
+
+    update_light_buffer: bool,
 
     frame: u32,
     next_frame: u32,
@@ -297,7 +304,7 @@ impl State {
             usage: wgpu::BufferUsage::INDEX,
         });
 
-        let uniform_size = std::mem::size_of::<Camera>();
+        let uniform_size = std::mem::size_of::<Globals>();
         let instance_size = std::mem::size_of::<CubeInstanceRaw>();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -359,14 +366,15 @@ impl State {
         });
 
         // Light ------------------------------------------------------------------------------------------------------------
-        let light = Light::new().to_raw();
+        let lights = vec![Light::new()];
         let light_size = std::mem::size_of::<LightRaw>() as u64;
 
         // We'll want to update our lights position, so we use COPY_DST
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&[light]),
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+        let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
+            size: light_size * lights.len() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let global_bind_group_layout =
@@ -616,6 +624,7 @@ impl State {
             depth_texture,
 
             global_bind_group,
+            lights,
             light_buffer,
             light_render_pipeline,
             shadow_render_pipeline,
@@ -628,6 +637,8 @@ impl State {
             size,
 
             output_dir,
+
+            update_light_buffer: true,
 
             frame: 0,
             next_frame: INTERVAL / 4,
@@ -754,6 +765,17 @@ impl State {
                 contents: bytemuck::cast_slice(&[vp_uniforms]),
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
+
+        if self.update_light_buffer {
+            self.update_light_buffer = false;
+            for (i, light) in self.lights.iter().enumerate() {
+                self.queue.write_buffer(
+                    &self.light_buffer,
+                    (i * std::mem::size_of::<LightRaw>()) as wgpu::BufferAddress,
+                    bytemuck::bytes_of(&light.to_raw()),
+                );
+            }
+        }
 
         self.queue.write_buffer(
             &self.instance_buf,
