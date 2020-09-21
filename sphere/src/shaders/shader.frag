@@ -7,8 +7,8 @@ layout(location = 2) in vec4 v_color;
 layout(location = 0) out vec4 f_color;
 layout(location = 1) out vec4 png_color;
 
-layout(set = 0, binding = 0) uniform Locals {
-    vec4 u_view_position;
+layout(set = 0, binding = 0) uniform Camera {
+    vec4 u_position;
     mat4 u_view_proj;
 };
 
@@ -75,7 +75,7 @@ void main() {
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
     vec3 diffuse_color = shadow * light_color * diffuse_strength;
 
-    vec3 view_dir = normalize(u_view_position.xyz - v_position);
+    vec3 view_dir = normalize(u_position.xyz - v_position);
     vec3 reflect_dir = reflect(-light_dir, normal);
 
     float specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), 32);

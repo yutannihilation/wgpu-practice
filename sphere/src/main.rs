@@ -35,14 +35,14 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 1.0,
 );
 
-struct BufferDimensions {
+struct PNGDimensions {
     width: usize,
     height: usize,
     unpadded_bytes_per_row: usize,
     padded_bytes_per_row: usize,
 }
 
-impl BufferDimensions {
+impl PNGDimensions {
     fn new(width: usize, height: usize) -> Self {
         let bytes_per_pixel = std::mem::size_of::<u32>();
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -99,12 +99,12 @@ struct CubeInstanceRaw {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Uniforms {
-    view_position: [f32; 4],
+struct Camera {
+    position: [f32; 4],
     view_proj: [[f32; 4]; 4],
 }
 
-fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
+fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Camera {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
@@ -121,8 +121,8 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Uniforms {
     let mx_view =
         cgmath::Matrix4::look_at(eye, cgmath::Point3::origin(), cgmath::Vector3::unit_z());
 
-    Uniforms {
-        view_position: eye.to_homogeneous().into(),
+    Camera {
+        position: eye.to_homogeneous().into(),
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
     }
 }
@@ -211,7 +211,7 @@ struct State {
     // Texture for writing out as PNG
     png_texture: wgpu::Texture,
     png_buffer: wgpu::Buffer,
-    png_dimensions: BufferDimensions,
+    png_dimensions: PNGDimensions,
 
     size: winit::dpi::PhysicalSize<u32>,
 
@@ -297,7 +297,7 @@ impl State {
             usage: wgpu::BufferUsage::INDEX,
         });
 
-        let uniform_size = std::mem::size_of::<Uniforms>();
+        let uniform_size = std::mem::size_of::<Camera>();
         let instance_size = std::mem::size_of::<CubeInstanceRaw>();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -1101,8 +1101,8 @@ fn create_png_texture_and_buffer(
     device: &wgpu::Device,
     width: usize,
     height: usize,
-) -> (BufferDimensions, wgpu::Buffer, wgpu::Texture) {
-    let png_dimensions = BufferDimensions::new(width, height);
+) -> (PNGDimensions, wgpu::Buffer, wgpu::Texture) {
+    let png_dimensions = PNGDimensions::new(width, height);
     // The output buffer lets us retrieve the data as an array
     let png_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -1133,7 +1133,7 @@ async fn create_png(
     png_output_path: &str,
     device: &wgpu::Device,
     output_buffer: &wgpu::Buffer,
-    buffer_dimensions: &BufferDimensions,
+    buffer_dimensions: &PNGDimensions,
 ) {
     // Note that we're not calling `.await` here.
     let buffer_slice = output_buffer.slice(..);
