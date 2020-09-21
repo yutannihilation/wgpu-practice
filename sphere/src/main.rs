@@ -179,7 +179,6 @@ struct State {
     sc_desc: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
 
-    bind_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
     staging_texture: wgpu::Texture,
 
@@ -188,11 +187,12 @@ struct State {
     instance_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
+    cube_bind_group: wgpu::BindGroup,
 
     plane_vertex_buf: wgpu::Buffer,
-    plane_instance_buf: wgpu::Buffer,
     plane_index_buf: wgpu::Buffer,
     plane_index_count: usize,
+    plane_bind_group: wgpu::BindGroup,
 
     depth_texture_view: wgpu::TextureView,
 
@@ -499,6 +499,36 @@ impl State {
             attributes: &vertex_attrs_vertex,
         }];
 
+        // Create bind group
+        let cube_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: globals_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: instance_buf.as_entire_binding(),
+                },
+            ],
+            label: None,
+        });
+        let plane_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: globals_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: plane_instance_buf.as_entire_binding(),
+                },
+            ],
+            label: None,
+        });
+
         // Render pipeline ------------------------------------------------------------------------------------------------------------
 
         let render_pipeline_layout =
@@ -577,6 +607,7 @@ impl State {
         );
 
         // MSAA --------------------------------------------------------------------------------------------------------
+
         let multisample_texture_view =
             create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format)
                 .create_view(&wgpu::TextureViewDescriptor::default());
@@ -586,8 +617,10 @@ impl State {
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Depth texture ----------------------------------------------------------------------------------------------------
+
         let depth_texture_view = create_depth_texture(&device, &sc_desc)
             .create_view(&wgpu::TextureViewDescriptor::default());
+
         // PNG output ----------------------------------------------------------------------------------------------------
 
         // Output dir
@@ -608,7 +641,6 @@ impl State {
             sc_desc,
             swap_chain,
 
-            bind_group_layout,
             render_pipeline,
             staging_texture,
 
@@ -617,11 +649,12 @@ impl State {
             instance_buf,
             index_buf,
             index_count: index_data.len(),
+            cube_bind_group,
 
             plane_index_buf,
-            plane_instance_buf,
             plane_vertex_buf,
             plane_index_count: plane_index_data.len(),
+            plane_bind_group,
 
             multisample_texture_view,
             multisample_png_texture_view,
@@ -752,10 +785,6 @@ impl State {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let png_texture_view = self
-            .png_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
         let vp_uniforms = generate_global_uniform(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
             self.frame,
@@ -785,36 +814,6 @@ impl State {
             bytemuck::cast_slice(&create_instance_date(self.frame)),
         );
 
-        // Create bind group
-        let cube_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.globals_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.instance_buf.as_entire_binding(),
-                },
-            ],
-            label: None,
-        });
-        let plane_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.globals_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.plane_instance_buf.as_entire_binding(),
-                },
-            ],
-            label: None,
-        });
-
         // shadow
         for i in 0..self.lights.len() {
             encoder.copy_buffer_to_buffer(
@@ -840,19 +839,22 @@ impl State {
             render_pass.set_pipeline(&self.shadow_render_pipeline);
 
             // draw cube
-            render_pass.set_bind_group(0, &cube_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.cube_bind_group, &[]);
             render_pass.set_bind_group(1, &self.shadow_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
 
             // draw plane
-            render_pass.set_bind_group(0, &plane_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.plane_bind_group, &[]);
             render_pass.set_index_buffer(self.plane_index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.plane_vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.plane_index_count as u32), 0, 0..1);
         }
 
+        let png_texture_view = self
+            .png_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
@@ -889,14 +891,14 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
 
             // draw cube
-            render_pass.set_bind_group(0, &cube_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.cube_bind_group, &[]);
             render_pass.set_bind_group(1, &self.globals_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
 
             // draw plane
-            render_pass.set_bind_group(0, &plane_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.plane_bind_group, &[]);
             render_pass.set_index_buffer(self.plane_index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.plane_vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.plane_index_count as u32), 0, 0..1);
