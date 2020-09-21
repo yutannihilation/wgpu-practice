@@ -362,7 +362,7 @@ impl State {
 
         let plane_instance_data = [CubeInstanceRaw {
             model: cgmath::Matrix4::identity().into(),
-            color: cgmath::vec4(0.78, 1.0, 1.0, 1.0).into(),
+            color: cgmath::vec4(0.5, 0.5, 0.5, 0.5).into(),
         }];
         let plane_instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&plane_instance_data),
@@ -372,6 +372,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
+            Light::new((-5.0, -5.0, 100.0).into(), (0.0, 0.8, 0.8).into()),
             Light::new((5.0, 5.0, 100.0).into(), (0.2, 0.01, 0.01).into()),
             Light::new((0.0, 10.0, 90.0).into(), (0.01, 0.2, 0.01).into()),
             Light::new((10.0, 0.0, 80.0).into(), (0.01, 0.01, 0.2).into()),
