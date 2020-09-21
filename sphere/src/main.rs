@@ -106,7 +106,7 @@ struct Globals {
     _padding: [u32; 3],
 }
 
-fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Globals {
+fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) -> Globals {
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
@@ -114,7 +114,7 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Globals {
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 2.0f32 + (frame as f32 / 100.0);
+    let distance = 10.0f32 + (frame as f32 / 100.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -126,7 +126,7 @@ fn generate_vp_uniforms(aspect_ratio: f32, frame: u32) -> Globals {
     Globals {
         position: eye.to_homogeneous().into(),
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
-        num_of_lights: 1,
+        num_of_lights,
         _padding: [0, 0, 0],
     }
 }
@@ -142,22 +142,19 @@ struct Light {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct LightRaw {
-    // Though we only need vec3, due to uniforms requiring 16 byte (4 float) spacing,
-    // use vec4 to align with the requirement
+    // Though we only need vec3 for position and color, due to uniforms
+    // requiring 16 byte (4 float) spacing, use vec4 to align with the requirement
     view_proj: cgmath::Matrix4<f32>,
     position: cgmath::Vector4<f32>,
-    color: cgmath::Vector3<f32>,
+    color: cgmath::Vector4<f32>,
 }
 
 unsafe impl bytemuck::Pod for LightRaw {}
 unsafe impl bytemuck::Zeroable for LightRaw {}
 
 impl Light {
-    fn new() -> Self {
-        Self {
-            position: (3.0, 1.0, 100.0).into(),
-            color: (1.0, 1.0, 1.0).into(),
-        }
+    fn new(position: cgmath::Point3<f32>, color: cgmath::Vector3<f32>) -> Self {
+        Self { position, color }
     }
 
     fn to_raw(&self) -> LightRaw {
@@ -170,7 +167,7 @@ impl Light {
         LightRaw {
             view_proj: OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view,
             position: self.position.to_homogeneous(),
-            color: self.color,
+            color: self.color.extend(1.0),
         }
     }
 }
@@ -199,14 +196,16 @@ struct State {
 
     depth_texture: wgpu::Texture,
 
-    global_bind_group: wgpu::BindGroup,
+    globals_bind_group: wgpu::BindGroup,
+    globals_buffer: wgpu::Buffer,
     lights: Vec<Light>,
     light_buffer: wgpu::Buffer,
+    light_tmp_buffer: wgpu::Buffer,
     light_render_pipeline: wgpu::RenderPipeline,
 
     // shadow
     shadow_bind_group: wgpu::BindGroup,
-    shadow_target_view: wgpu::TextureView,
+    shadow_target_views: Vec<wgpu::TextureView>,
     shadow_render_pipeline: wgpu::RenderPipeline,
 
     // Texture for MASS
@@ -304,7 +303,7 @@ impl State {
             usage: wgpu::BufferUsage::INDEX,
         });
 
-        let uniform_size = std::mem::size_of::<Globals>();
+        let globals_size = std::mem::size_of::<Globals>();
         let instance_size = std::mem::size_of::<CubeInstanceRaw>();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -314,7 +313,7 @@ impl State {
                     visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::UniformBuffer {
                         dynamic: false,
-                        min_binding_size: wgpu::BufferSize::new(uniform_size as _),
+                        min_binding_size: wgpu::BufferSize::new(globals_size as _),
                     },
                     count: None,
                 },
@@ -332,6 +331,13 @@ impl State {
                     count: None,
                 },
             ],
+        });
+
+        let globals_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: globals_size as _,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let depth_stencil_state = wgpu::DepthStencilStateDescriptor {
@@ -366,18 +372,33 @@ impl State {
         });
 
         // Light ------------------------------------------------------------------------------------------------------------
-        let lights = vec![Light::new()];
+        let lights = vec![
+            Light::new((5.0, 5.0, 100.0).into(), (0.2, 0.01, 0.01).into()),
+            Light::new((0.0, 10.0, 90.0).into(), (0.01, 0.2, 0.01).into()),
+            Light::new((10.0, 0.0, 80.0).into(), (0.01, 0.01, 0.2).into()),
+            Light::new((30.0, 30.0, 50.0).into(), (0.01, 0.1, 0.1).into()),
+            Light::new((40.0, 40.0, 50.0).into(), (0.01, 0.1, 0.1).into()),
+        ];
         let light_size = std::mem::size_of::<LightRaw>() as u64;
 
         // We'll want to update our lights position, so we use COPY_DST
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: light_size * lights.len() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::UNIFORM
+                | wgpu::BufferUsage::COPY_DST
+                | wgpu::BufferUsage::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        // a buffer to use for baking depth map
+        let light_tmp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: light_size as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let global_bind_group_layout =
+        let globals_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -385,7 +406,9 @@ impl State {
                         visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::UniformBuffer {
                             dynamic: false,
-                            min_binding_size: wgpu::BufferSize::new(light_size),
+                            min_binding_size: wgpu::BufferSize::new(
+                                light_size * lights.len() as u64,
+                            ),
                         },
                         count: None,
                     },
@@ -395,7 +418,7 @@ impl State {
                         ty: wgpu::BindingType::SampledTexture {
                             multisampled: false,
                             component_type: wgpu::TextureComponentType::DepthComparison,
-                            dimension: wgpu::TextureViewDimension::D2,
+                            dimension: wgpu::TextureViewDimension::D2Array,
                         },
                         count: None,
                     },
@@ -425,33 +448,34 @@ impl State {
             size: wgpu::Extent3d {
                 width: sc_desc.width * SHADOW_RES,
                 height: sc_desc.height * SHADOW_RES,
-                depth: 1,
+                depth: lights.len() as _,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
-                | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::COPY_SRC,
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
             label: None,
         });
 
         let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let shadow_target_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("shadow"),
-            format: None,
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            aspect: wgpu::TextureAspect::All,
-            base_mip_level: 0,
-            level_count: None,
-            base_array_layer: 0,
-            array_layer_count: std::num::NonZeroU32::new(1),
-        });
+        let shadow_target_views = (0..lights.len())
+            .map(|i| {
+                shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("shadow"),
+                    format: None,
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::All,
+                    base_mip_level: 0,
+                    level_count: None,
+                    base_array_layer: i as _,
+                    array_layer_count: std::num::NonZeroU32::new(1),
+                })
+            })
+            .collect::<Vec<_>>();
 
-        // TODO
-        let global_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &global_bind_group_layout,
+        let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &globals_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -472,7 +496,7 @@ impl State {
         // for debugging
         let light_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout, &global_bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout, &globals_bind_group_layout],
                 push_constant_ranges: &[],
                 label: None,
             });
@@ -500,7 +524,7 @@ impl State {
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout, &global_bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout, &globals_bind_group_layout],
                 push_constant_ranges: &[],
                 label: None,
             });
@@ -539,7 +563,7 @@ impl State {
             layout: &shadow_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: light_buffer.as_entire_binding(),
+                resource: light_tmp_buffer.as_entire_binding(),
             }],
             label: None,
         });
@@ -623,13 +647,16 @@ impl State {
 
             depth_texture,
 
-            global_bind_group,
+            globals_bind_group,
+            globals_buffer,
+
             lights,
             light_buffer,
+            light_tmp_buffer,
             light_render_pipeline,
             shadow_render_pipeline,
             shadow_bind_group,
-            shadow_target_view,
+            shadow_target_views,
             png_texture,
             png_buffer,
             png_dimensions,
@@ -754,17 +781,17 @@ impl State {
             .depth_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let vp_uniforms = generate_vp_uniforms(
+        let vp_uniforms = generate_global_uniform(
             self.sc_desc.width as f32 / self.sc_desc.height as f32,
             self.frame,
+            self.lights.len() as _,
         );
-        let uniform_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Uniform Buffer"),
-                contents: bytemuck::cast_slice(&[vp_uniforms]),
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            });
+
+        self.queue.write_buffer(
+            &self.globals_buffer,
+            0,
+            bytemuck::cast_slice(&[vp_uniforms]),
+        );
 
         if self.update_light_buffer {
             self.update_light_buffer = false;
@@ -789,7 +816,7 @@ impl State {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
+                    resource: self.globals_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -803,7 +830,7 @@ impl State {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
+                    resource: self.globals_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -814,11 +841,19 @@ impl State {
         });
 
         // shadow
-        {
+        for i in 0..self.lights.len() {
+            encoder.copy_buffer_to_buffer(
+                &self.light_buffer,
+                (i * std::mem::size_of::<LightRaw>()) as wgpu::BufferAddress,
+                &self.light_tmp_buffer,
+                0,
+                std::mem::size_of::<LightRaw>() as _,
+            );
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.shadow_target_view,
+                    attachment: &self.shadow_target_views[i],
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,
@@ -889,7 +924,7 @@ impl State {
 
             // draw cube
             render_pass.set_bind_group(0, &cube_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.global_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.globals_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buf.slice(..));
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);

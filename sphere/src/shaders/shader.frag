@@ -15,8 +15,6 @@ layout(set = 0, binding = 0) uniform Globals {
     int num_of_lights;
 };
 
-
-
 struct Light {
     mat4 view_proj;
     vec4 position;
@@ -72,8 +70,8 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
 
 void main() {
     vec4 object_color = v_color;
-    // We don't need (or want) much ambient light, so 0.1 is fine
-    float ambient_strength = 0.1 / num_of_lights;
+    // We don't need (or want) much ambient light
+    float ambient_strength = 0.03 / num_of_lights;
 
     vec3 normal = normalize(v_normal);
 
@@ -90,7 +88,7 @@ void main() {
         vec3 light_dir = normalize(u_lights[i].position.xyz - v_position);
 
         float bias = max(0.003 * (1.0 - dot(normal, light_dir)), 0.001);
-        float shadow = fetch_shadow(0, u_lights[i].view_proj * vec4(v_position, 1.0), bias);
+        float shadow = fetch_shadow(i, u_lights[i].view_proj * vec4(v_position, 1.0), bias);
 
         float diffuse_strength = max(dot(normal, light_dir), 0.0);
         vec3 diffuse_color = shadow * u_lights[i].color * diffuse_strength;
@@ -105,12 +103,10 @@ void main() {
 
         // blend --------------------------------
 
-        color += (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+        color += (ambient_color + diffuse_color + specular_color);
     }
 
-    // Since lights don't typically (afaik) cast transparency, so we use
-    // the alpha here at the end.
-    f_color = vec4(color, object_color.a);
+    f_color = vec4(color, 1.0) * object_color;
     
     png_color = f_color;
 }
