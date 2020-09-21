@@ -27,7 +27,10 @@ const SHADOW_RES: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 100000;
+const INTERVAL: u32 = 1000;
+
+// Threshold to choose the blight part to add bloom effect [0-1]
+const BLIGHTNESS_THRESHOLD: f32 = 0.8;
 
 // how many times to repeat gaussian blur
 const BLUR_COUNT: usize = 10;
@@ -70,9 +73,9 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 81;
+const NUM_INSTANCES: u32 = 9;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 1.0;
+const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
 const PLANE_SIZE: u32 = 1000;
@@ -115,6 +118,7 @@ struct Globals {
     position: [f32; 4],
     view_proj: [[f32; 4]; 4],
     num_of_lights: u32,
+    blightness_threshold: f32,
     _padding: [u32; 3],
 }
 
@@ -126,7 +130,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 15.0f32 + (frame as f32 / 50.0);
+    let distance = 5.0f32 + (frame as f32 / 100.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -139,6 +143,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
         position: eye.to_homogeneous().into(),
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
         num_of_lights,
+        blightness_threshold: BLIGHTNESS_THRESHOLD,
         _padding: [0, 0, 0],
     }
 }
@@ -1218,7 +1223,7 @@ impl State {
         });
 
         let blend_uniform = BlendUniforms::new(
-            EXPOSURE * (1.0 + 0.3 * (self.frame as f32 / 30.0).sin()),
+            EXPOSURE * (0.7 + 0.3 * (self.frame as f32 / 100.0).sin()),
             GAMMA,
         );
 
@@ -1325,7 +1330,7 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * 4.0,
+                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * 0.5,
             };
 
             let rotation = if position.is_zero() {
@@ -1339,7 +1344,7 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
                 )
             };
 
-            let a = (1.0 + (((13 * row + 7 * col) % 12) as f32).sin()) / 2.0;
+            let a = (3.0 + phase.sin()) / 4.0;
             let color = cgmath::vec4(a, a, a, 1.0);
 
             CubeInstance {

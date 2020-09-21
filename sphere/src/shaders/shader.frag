@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform Globals {
     vec4 u_position;
     mat4 u_view_proj;
     int num_of_lights;
+    float blightness_threshold;
 };
 
 struct Light {
@@ -112,8 +113,7 @@ void main() {
 
     float brightness = dot(f_color.rgb, vec3(0.2126, 0.7152, 0.0722));
 
-    // TODO: needs to adjust to proper brightness
-    if (brightness > 0.2)
+    if (brightness > blightness_threshold)
         b_color = vec4(f_color.rgb, 1.0);
     else
         b_color = vec4(0.0, 0.0, 0.0, 1.0);
