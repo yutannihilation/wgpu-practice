@@ -20,7 +20,7 @@ layout(set = 1, binding = 0) uniform Light {
 layout(set = 1, binding = 1) uniform texture2D t_Shadow;
 layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
 
-const int pcf_size = 8;
+const int pcf_size = 4;
 
 // original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
 float fetch_shadow(vec4 homogeneous_coords, float bias) {
@@ -49,7 +49,7 @@ float fetch_shadow(vec4 homogeneous_coords, float bias) {
             vec2 offset = vec2(x, y) * texel_size;
             // compute texture coordinates for shadow lookup
             vec3 light_local = vec3(
-                homogeneous_coords.xy * flip_correction/homogeneous_coords.w + 0.5 + offset,
+                homogeneous_coords.xy * flip_correction / homogeneous_coords.w + 0.5 + offset,
                 z_local
             );
             shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
