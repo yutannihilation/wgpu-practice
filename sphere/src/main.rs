@@ -201,7 +201,6 @@ struct State {
     lights: Vec<Light>,
     light_buffer: wgpu::Buffer,
     light_tmp_buffer: wgpu::Buffer,
-    light_render_pipeline: wgpu::RenderPipeline,
 
     // shadow
     shadow_bind_group: wgpu::BindGroup,
@@ -493,32 +492,12 @@ impl State {
             label: None,
         });
 
-        // for debugging
-        let light_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout, &globals_bind_group_layout],
-                push_constant_ranges: &[],
-                label: None,
-            });
-
         let vertex_attrs_vertex = wgpu::vertex_attr_array![0 => Float4, 1 => Float3];
         let vertex_buffers = [wgpu::VertexBufferDescriptor {
             stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attrs_vertex,
         }];
-
-        let light_render_pipeline = create_render_pipeline(
-            &device,
-            &light_render_pipeline_layout,
-            &device.create_shader_module(wgpu::include_spirv!("shaders/light.vert.spv")),
-            Some(&device.create_shader_module(wgpu::include_spirv!("shaders/light.frag.spv"))),
-            None,
-            &vertex_buffers,
-            SAMPLE_COUNT,
-            vec![sc_desc.format, wgpu::TextureFormat::Rgba8UnormSrgb],
-            Some(depth_stencil_state.clone()),
-        );
 
         // Render pipeline ------------------------------------------------------------------------------------------------------------
 
@@ -655,7 +634,6 @@ impl State {
             lights,
             light_buffer,
             light_tmp_buffer,
-            light_render_pipeline,
             shadow_render_pipeline,
             shadow_bind_group,
             shadow_target_views,
@@ -907,15 +885,6 @@ impl State {
                     }),
                 }),
             });
-
-            // draw light
-            // render_pass.set_pipeline(&self.light_render_pipeline);
-            // render_pass.set_bind_group(0, &bind_group, &[]);
-            // render_pass.set_bind_group(1, &self.global_bind_group, &[]);
-            // render_pass.set_index_buffer(self.index_buf.slice(..));
-            // render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-
-            // render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..1);
 
             render_pass.set_pipeline(&self.render_pipeline);
 
