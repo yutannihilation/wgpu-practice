@@ -19,7 +19,7 @@ use mesh::Vertex;
 
 // sample count for MSAA
 const SAMPLE_COUNT: u32 = 4;
-const SHADOW_SAMPLE_COUNT: u32 = 4;
+const SHADOW_SAMPLE_COUNT: u32 = 1;
 
 const IMAGE_DIR: &str = "img";
 
@@ -201,10 +201,8 @@ struct State {
 
     // shadow
     shadow_bind_group: wgpu::BindGroup,
-    shadow_texture: wgpu::Texture,
     shadow_target_view: wgpu::TextureView,
     shadow_render_pipeline: wgpu::RenderPipeline,
-    shadow_bind_group_layout: wgpu::BindGroupLayout,
 
     // Texture for MASS
     multisample_texture: wgpu::Texture,
@@ -387,7 +385,7 @@ impl State {
                         binding: 1,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: true,
+                            multisampled: SHADOW_SAMPLE_COUNT > 1,
                             component_type: wgpu::TextureComponentType::DepthComparison,
                             dimension: wgpu::TextureViewDimension::D2,
                         },
@@ -409,7 +407,7 @@ impl State {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear, // Change this to Nearest to disable hardware PCF
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
             compare: Some(wgpu::CompareFunction::LessEqual),
@@ -559,6 +557,7 @@ impl State {
                 depth_bias_slope_scale: 2.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: device.features().contains(wgpu::Features::DEPTH_CLAMPING),
+                polygon_mode: wgpu::PolygonMode::Fill,
             }),
             &vertex_buffers,
             SHADOW_SAMPLE_COUNT,
@@ -620,10 +619,8 @@ impl State {
             light_buffer,
             light_render_pipeline,
             shadow_render_pipeline,
-            shadow_bind_group_layout,
             shadow_bind_group,
             shadow_target_view,
-            shadow_texture,
             png_texture,
             png_buffer,
             png_dimensions,
