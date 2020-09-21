@@ -7,7 +7,7 @@ layout(location = 1) in vec3 v_normal;
 layout(location = 2) in vec4 v_color;
 
 layout(location = 0) out vec4 f_color;
-layout(location = 1) out vec4 png_color;
+layout(location = 1) out vec4 b_color;
 
 layout(set = 0, binding = 0) uniform Globals {
     vec4 u_position;
@@ -108,5 +108,13 @@ void main() {
 
     f_color = vec4(color, 1.0) * object_color;
     
-    png_color = f_color;
+    // extract brighter part for blur
+
+    float brightness = dot(f_color.rgb, vec3(0.2126, 0.7152, 0.0722));
+
+    // TODO: needs to adjust to proper brightness
+    if (brightness > 0.2)
+        b_color = vec4(f_color.rgb, 1.0);
+    else
+        b_color = vec4(0.0, 0.0, 0.0, 1.0);
 }
