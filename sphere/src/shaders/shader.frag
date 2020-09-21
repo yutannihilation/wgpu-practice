@@ -23,7 +23,7 @@ layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
 const int pcf_size = 8;
 
 // original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
-float fetch_shadow(vec4 homogeneous_coords) {
+float fetch_shadow(vec4 homogeneous_coords, float bias) {
     if (homogeneous_coords.w <= 0.0) {
         return 1.0;
     }
@@ -33,6 +33,9 @@ float fetch_shadow(vec4 homogeneous_coords) {
     if (z_local > 1.0) {
         return 0.0;
     }
+
+    // To prevent shadow acne, add a small bias
+    z_local -= bias;
 
     // compensate for the Y-flip difference between the NDC and texture coordinates
     const vec2 flip_correction = vec2(0.5, -0.5);
@@ -49,7 +52,6 @@ float fetch_shadow(vec4 homogeneous_coords) {
                 homogeneous_coords.xy * flip_correction/homogeneous_coords.w + 0.5 + offset,
                 z_local
             );
-            // do the lookup, using HW PCF and comparison
             shadow += texture(sampler2DShadow(t_Shadow, s_Shadow), light_local);
         }
     }
@@ -67,7 +69,8 @@ void main() {
     vec3 normal = normalize(v_normal);
     vec3 light_dir = normalize(light_position.xyz - v_position);
 
-    float shadow = fetch_shadow(light_view_proj * vec4(v_position, 1.0));
+    float bias = max(0.003 * (1.0 - dot(normal, light_dir)), 0.001);
+    float shadow = fetch_shadow(light_view_proj * vec4(v_position, 1.0), bias);
 
     float diffuse_strength = max(dot(normal, light_dir), 0.0);
     vec3 diffuse_color = shadow * light_color * diffuse_strength;
