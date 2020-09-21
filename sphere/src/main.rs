@@ -209,8 +209,8 @@ struct State {
     shadow_render_pipeline: wgpu::RenderPipeline,
 
     // Texture for MASS
-    multisample_texture: wgpu::Texture,
-    multisample_png_texture: wgpu::Texture, // a texture for PNG has a different TextureFormat, so we need another multisampled texture than others
+    multisample_texture_view: wgpu::TextureView,
+    multisample_png_texture_view: wgpu::TextureView, // a texture for PNG has a different TextureFormat, so we need another multisampled texture than others
 
     // Texture for writing out as PNG
     png_texture: wgpu::Texture,
@@ -600,9 +600,13 @@ impl State {
         // MSAA --------------------------------------------------------------------------------------------------------
         let multisample_texture =
             create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format);
+        let multisample_texture_view =
+            multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let multisample_png_texture =
             create_multisampled_framebuffer(&device, &sc_desc, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let multisample_png_texture_view =
+            multisample_png_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Depth texture ----------------------------------------------------------------------------------------------------
         let depth_texture = create_depth_texture(&device, &sc_desc);
@@ -642,8 +646,8 @@ impl State {
             plane_vertex_buf,
             plane_index_count: plane_index_data.len(),
 
-            multisample_texture,
-            multisample_png_texture,
+            multisample_texture_view,
+            multisample_png_texture_view,
 
             depth_texture,
 
@@ -681,13 +685,20 @@ impl State {
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
 
         self.staging_texture = create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format);
-        self.multisample_texture =
+
+        let multisample_texture =
             create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format);
-        self.multisample_png_texture = create_multisampled_framebuffer(
+        self.multisample_png_texture_view =
+            multisample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let multisample_png_texture = create_multisampled_framebuffer(
             &self.device,
             &self.sc_desc,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        self.multisample_png_texture_view =
+            multisample_png_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         self.depth_texture = create_depth_texture(&self.device, &self.sc_desc);
 
         let (png_dimensions, png_buffer, png_texture) = create_png_texture_and_buffer(
@@ -768,13 +779,6 @@ impl State {
 
         let png_texture_view = self
             .png_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let multisample_texture_view = self
-            .multisample_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let multisample_png_texture_view = self
-            .multisample_png_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let depth_texture_view = self
@@ -882,7 +886,7 @@ impl State {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
                     wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &multisample_texture_view,
+                        attachment: &self.multisample_texture_view,
                         resolve_target: Some(&frame.output.view),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BG_COLOR),
@@ -890,7 +894,7 @@ impl State {
                         },
                     },
                     wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &multisample_png_texture_view,
+                        attachment: &self.multisample_png_texture_view,
                         resolve_target: Some(&png_texture_view),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BG_COLOR),
