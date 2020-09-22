@@ -421,19 +421,19 @@ pub fn create_plane(size: u32) -> (Vec<Vertex>, Vec<u32>) {
     let vertex_data = [
         Vertex {
             _pos: [size, -size, 0.0, 1.0],
-            _normal: [0.0, 0.0, 0.01],
+            _normal: [0.0, 0.0, 1.0],
         },
         Vertex {
             _pos: [size, size, 0.0, 1.0],
-            _normal: [0.0, 0.0, 0.01],
+            _normal: [0.0, 0.0, 1.0],
         },
         Vertex {
             _pos: [-size, -size, 0.0, 1.0],
-            _normal: [0.0, 0.0, 0.01],
+            _normal: [0.0, 0.0, 1.0],
         },
         Vertex {
             _pos: [-size, size, 0.0, 1.0],
-            _normal: [0.0, 0.0, 0.01],
+            _normal: [0.0, 0.0, 1.0],
         },
     ];
 

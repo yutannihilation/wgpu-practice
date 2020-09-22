@@ -72,9 +72,11 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
 void main() {
     vec4 object_color = v_color;
     // We don't need (or want) much ambient light
-    float ambient_strength = 0.05 / num_of_lights;
+    float ambient_strength = 0.1 / num_of_lights;
 
-    vec3 normal = normalize(v_normal);
+    // normals don't need to be normalized, as it's done on the Rust's side,
+    // and we want to use the normal value as the characteristic of the material
+    vec3 normal = v_normal;
 
     vec3 color = vec3(0.0);
 
@@ -88,7 +90,7 @@ void main() {
 
         vec3 light_dir = normalize(u_lights[i].position.xyz - v_position);
 
-        float bias = max(0.003 * (1.0 - dot(normal, light_dir)), 0.001);
+        float bias = max(0.0003 * (1.0 - dot(normal, light_dir)), 0.0001);
         float shadow = fetch_shadow(i, u_lights[i].view_proj * vec4(v_position, 1.0), bias);
 
         float diffuse_strength = max(dot(normal, light_dir), 0.0);

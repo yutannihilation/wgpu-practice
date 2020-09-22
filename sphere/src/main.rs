@@ -27,16 +27,16 @@ const SHADOW_RES: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 500;
+const INTERVAL: u32 = 100000;
 
 // Threshold to choose the blight part to add bloom effect [0-1]
-const BLIGHTNESS_THRESHOLD: f32 = 0.8;
+const BLIGHTNESS_THRESHOLD: f32 = 0.5;
 
 // how many times to repeat gaussian blur
 const BLUR_COUNT: usize = 10;
 
 // exposure level used in blend.frag
-const EXPOSURE: f32 = 0.3;
+const EXPOSURE: f32 = 3.0;
 
 // gamma correction used in blend.frag
 const GAMMA: f32 = 2.2;
@@ -73,11 +73,11 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 16;
+const NUM_INSTANCES: u32 = 81;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 0.3;
+const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
 const SHARPNESS: Option<f32> = Some(2.0);
-const SUBDIVIDE_LIMIT: usize = 1000;
+const SUBDIVIDE_LIMIT: usize = 10;
 const PLANE_SIZE: u32 = 1000;
 
 const BG_COLOR: wgpu::Color = wgpu::Color {
@@ -133,7 +133,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 5.0f32 + (frame as f32 / 50.0);
+    let distance = 15.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -387,7 +387,7 @@ impl State {
 
         // Instances ----------------------------------------------------------------------
 
-        let instance_data = create_instance_date(0);
+        let instance_data = create_instance_data(0);
         let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
@@ -397,7 +397,7 @@ impl State {
         let plane_instance_data = [CubeInstanceRaw {
             model: cgmath::Matrix4::identity().into(),
             color: cgmath::vec3(0.8, 0.8, 0.8).into(),
-            normal: 0.2,
+            normal: 0.1,
         }];
         let plane_instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&plane_instance_data),
@@ -407,7 +407,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
-            Light::new((20.0, 20.0, 100.0).into(), (0.5, 0.0, 0.0).into()),
+            Light::new((20.0, 20.0, 100.0).into(), (1.0, 1.0, 1.0).into()),
             Light::new((-20.0, -20.0, 90.0).into(), (0.2, 0.4, 0.0).into()),
             Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.4, 0.2).into()),
             Light::new((50.0, 0.0, 70.0).into(), (0.3, 0.0, 0.3).into()),
@@ -1021,7 +1021,7 @@ impl State {
         self.queue.write_buffer(
             &self.instance_buf,
             0,
-            bytemuck::cast_slice(&create_instance_date(self.frame)),
+            bytemuck::cast_slice(&create_instance_data(self.frame)),
         );
 
         // render shadows --------------------------------------------------------------------------------
@@ -1320,7 +1320,7 @@ impl State {
     }
 }
 
-fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
+fn create_instance_data(frame: u32) -> Vec<CubeInstanceRaw> {
     let width = (NUM_INSTANCES as f32).sqrt().round() as u32;
     let offset = (width / 2) as i32;
 
@@ -1329,10 +1329,12 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             let row = (x / width) as i32;
             let col = (x % width) as i32;
             let phase = (5 * row + 3 * col + 2 * row * col) as f32 * std::f32::consts::PI / 30.0;
+            let z =
+                (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * (1.0 + frame as f32 / 1000.0);
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
-                z: (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * 0.5,
+                z,
             };
 
             let rotation = if position.is_zero() {
@@ -1342,13 +1344,17 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             } else {
                 cgmath::Quaternion::from_axis_angle(
                     position.clone().normalize(),
-                    cgmath::Deg(frame as f32),
+                    cgmath::Deg(
+                        frame as f32
+                            * (0.5 + (0.9 * row as f32).sin() / 2.0)
+                            * (0.3 + (z / 12.0).powi(4)),
+                    ),
                 )
             };
 
-            let a = (3.0 + phase.sin()) / 4.0;
-            let color = cgmath::vec3(a, a, a);
-            let normal = 0.5;
+            let a = (row as f32 / width as f32 * 0.7 + 0.3).powi(2);
+            let color = cgmath::vec3(a, 1.0 - a, 0.3);
+            let normal = (col as f32 / width as f32 * 0.3 + 0.7).powi(2);
 
             CubeInstance {
                 position,
