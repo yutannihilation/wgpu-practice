@@ -4,7 +4,8 @@ layout(location = 0) in vec4 a_position;
 
 struct Data {
   mat4 s_models;
-  vec4 s_color;
+  vec3 s_color;
+  float s_normal;
 };
 
 layout(set = 0, binding = 1) buffer Instances {

@@ -72,7 +72,7 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
 void main() {
     vec4 object_color = v_color;
     // We don't need (or want) much ambient light
-    float ambient_strength = 0.005 / num_of_lights;
+    float ambient_strength = 0.05 / num_of_lights;
 
     vec3 normal = normalize(v_normal);
 

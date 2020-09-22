@@ -5,7 +5,7 @@ layout(location = 1) in vec3 a_normal;
 
 layout(location = 0) out vec3 v_position;
 layout(location = 1) out vec3 v_normal;
-layout(location = 2) out vec4 v_color;
+layout(location = 2) out vec3 v_color;
 
 layout(set = 0, binding = 0) uniform Locals {
     vec4 u_view_position;
@@ -14,7 +14,8 @@ layout(set = 0, binding = 0) uniform Locals {
 
 struct Data {
   mat4 s_models;
-  vec4 s_color;
+  vec3 s_color;
+  float s_normal; // per instance normal adjustment
 };
 
 layout(set = 0, binding = 1) buffer Instances {
@@ -25,7 +26,7 @@ void main() {
     v_color = data[gl_InstanceIndex].s_color;
 
     mat3 normal_matrix = mat3(transpose(inverse(data[gl_InstanceIndex].s_models)));
-    v_normal = normal_matrix * a_normal;
+    v_normal = normal_matrix * a_normal * data[gl_InstanceIndex].s_normal;
 
     v_position = a_position.xyz;
 

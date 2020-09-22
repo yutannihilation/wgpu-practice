@@ -27,7 +27,7 @@ const SHADOW_RES: u32 = 4;
 const IMAGE_DIR: &str = "img";
 
 // Number of frames to finish one iteration of subdivision
-const INTERVAL: u32 = 1000;
+const INTERVAL: u32 = 500;
 
 // Threshold to choose the blight part to add bloom effect [0-1]
 const BLIGHTNESS_THRESHOLD: f32 = 0.8;
@@ -36,10 +36,10 @@ const BLIGHTNESS_THRESHOLD: f32 = 0.8;
 const BLUR_COUNT: usize = 10;
 
 // exposure level used in blend.frag
-const EXPOSURE: f32 = 2.0;
+const EXPOSURE: f32 = 0.3;
 
 // gamma correction used in blend.frag
-const GAMMA: f32 = 1.0;
+const GAMMA: f32 = 2.2;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 #[allow(unused)]
@@ -73,9 +73,9 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 9;
+const NUM_INSTANCES: u32 = 16;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
+const INTERVAL_BETWEEN_CUBE: f32 = 0.3;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 1000;
 const PLANE_SIZE: u32 = 1000;
@@ -91,7 +91,8 @@ const BG_COLOR: wgpu::Color = wgpu::Color {
 struct CubeInstance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
-    color: cgmath::Vector4<f32>,
+    color: cgmath::Vector3<f32>,
+    normal: f32,
 }
 
 impl CubeInstance {
@@ -101,6 +102,7 @@ impl CubeInstance {
         CubeInstanceRaw {
             model: model.into(),
             color: self.color.into(),
+            normal: self.normal,
         }
     }
 }
@@ -109,7 +111,8 @@ impl CubeInstance {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct CubeInstanceRaw {
     model: [[f32; 4]; 4],
-    color: [f32; 4],
+    color: [f32; 3],
+    normal: f32,
 }
 
 #[repr(C)]
@@ -119,7 +122,7 @@ struct Globals {
     view_proj: [[f32; 4]; 4],
     num_of_lights: u32,
     blightness_threshold: f32,
-    _padding: [u32; 3],
+    _padding: [u32; 2],
 }
 
 fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) -> Globals {
@@ -130,7 +133,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 5.0f32 + (frame as f32 / 100.0);
+    let distance = 5.0f32 + (frame as f32 / 50.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -144,7 +147,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
         num_of_lights,
         blightness_threshold: BLIGHTNESS_THRESHOLD,
-        _padding: [0, 0, 0],
+        _padding: [0, 0],
     }
 }
 
@@ -393,7 +396,8 @@ impl State {
 
         let plane_instance_data = [CubeInstanceRaw {
             model: cgmath::Matrix4::identity().into(),
-            color: cgmath::vec4(0.5, 0.5, 0.5, 0.5).into(),
+            color: cgmath::vec3(0.8, 0.8, 0.8).into(),
+            normal: 0.2,
         }];
         let plane_instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&plane_instance_data),
@@ -403,12 +407,10 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
-            Light::new((-5.0, -5.0, 100.0).into(), (0.0, 0.8, 0.8).into()),
-            Light::new((5.0, 5.0, 100.0).into(), (0.2, 0.01, 0.01).into()),
-            Light::new((0.0, 10.0, 90.0).into(), (0.01, 0.2, 0.01).into()),
-            Light::new((10.0, 0.0, 80.0).into(), (0.01, 0.01, 0.2).into()),
-            Light::new((30.0, 30.0, 50.0).into(), (0.01, 0.1, 0.1).into()),
-            Light::new((40.0, 40.0, 50.0).into(), (0.01, 0.1, 0.1).into()),
+            Light::new((20.0, 20.0, 100.0).into(), (0.5, 0.0, 0.0).into()),
+            Light::new((-20.0, -20.0, 90.0).into(), (0.2, 0.4, 0.0).into()),
+            Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.4, 0.2).into()),
+            Light::new((50.0, 0.0, 70.0).into(), (0.3, 0.0, 0.3).into()),
         ];
         let light_size = std::mem::size_of::<LightRaw>() as u64;
 
@@ -1345,12 +1347,14 @@ fn create_instance_date(frame: u32) -> Vec<CubeInstanceRaw> {
             };
 
             let a = (3.0 + phase.sin()) / 4.0;
-            let color = cgmath::vec4(a, a, a, 1.0);
+            let color = cgmath::vec3(a, a, a);
+            let normal = 0.5;
 
             CubeInstance {
                 position,
                 rotation,
                 color,
+                normal,
             }
         })
         .collect();
