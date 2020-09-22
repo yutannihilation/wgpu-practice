@@ -235,7 +235,7 @@ struct State {
     blur_uniform_bind_group_layout: wgpu::BindGroupLayout,
     blur_uniform: BlurUniforms,
     blur_render_pipeline: wgpu::RenderPipeline,
-    blur_textures: [wgpu::Texture; 2],
+    blur_texture_views: [wgpu::TextureView; 2],
     square_vertex: wgpu::Buffer,
 
     // A render pipeline for blending the results
@@ -711,9 +711,11 @@ impl State {
         let blur_uniform = BlurUniforms::new();
 
         // Textures to process gaussian blur in a ping-pong manner
-        let blur_textures = [
-            create_framebuffer(&device, &sc_desc, sc_desc.format),
-            create_framebuffer(&device, &sc_desc, sc_desc.format),
+        let blur_texture_views = [
+            create_framebuffer(&device, &sc_desc, sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            create_framebuffer(&device, &sc_desc, sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default()),
         ];
 
         // Vetex to draw the texture identically
@@ -858,7 +860,7 @@ impl State {
             blur_uniform_bind_group_layout,
             blur_render_pipeline,
             blur_uniform,
-            blur_textures,
+            blur_texture_views,
             square_vertex,
 
             blend_bind_group_layout,
@@ -908,6 +910,12 @@ impl State {
             create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
                 .create_view(&wgpu::TextureViewDescriptor::default()),
             create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+        self.blur_texture_views = [
+            create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
                 .create_view(&wgpu::TextureViewDescriptor::default()),
         ];
 
@@ -1068,10 +1076,6 @@ impl State {
         let staging_texture_view = self
             .staging_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let blur_texture_views = [
-            self.blur_textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
-            self.blur_textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
-        ];
 
         // render forward pass ----------------------------------------------------------------------------------------
 
@@ -1088,7 +1092,7 @@ impl State {
                     },
                     wgpu::RenderPassColorAttachmentDescriptor {
                         attachment: &self.multisample_texture_views[1],
-                        resolve_target: Some(&blur_texture_views[0]),
+                        resolve_target: Some(&self.blur_texture_views[0]),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BG_COLOR),
                             store: true,
@@ -1137,17 +1141,12 @@ impl State {
             let src = i % 2;
             let dst = (i + 1) % 2;
 
-            let src_texture_view =
-                &self.blur_textures[src].create_view(&wgpu::TextureViewDescriptor::default());
-            let dst_texture_view =
-                &self.blur_textures[dst].create_view(&wgpu::TextureViewDescriptor::default());
-
             let blur_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.blur_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&src_texture_view),
+                        resource: wgpu::BindingResource::TextureView(&self.blur_texture_views[src]),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1182,7 +1181,7 @@ impl State {
                 let mut blur_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                         attachment: &self.multisample_texture_views[0],
-                        resolve_target: Some(&dst_texture_view),
+                        resolve_target: Some(&self.blur_texture_views[dst]),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: true,
@@ -1214,8 +1213,7 @@ impl State {
                     binding: 1,
                     // a texture that contains the last result of gaussian blur
                     resource: wgpu::BindingResource::TextureView(
-                        &self.blur_textures[blur_count % 2]
-                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                        &self.blur_texture_views[blur_count % 2],
                     ),
                 },
                 wgpu::BindGroupEntry {
