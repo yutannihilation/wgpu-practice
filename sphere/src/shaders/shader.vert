@@ -6,10 +6,14 @@ layout(location = 1) in vec3 a_normal;
 layout(location = 0) out vec3 v_position;
 layout(location = 1) out vec3 v_normal;
 layout(location = 2) out vec3 v_color;
+layout(location = 3) out float v_self_illumination;
 
-layout(set = 0, binding = 0) uniform Locals {
-    vec4 u_view_position;
+layout(set = 0, binding = 0) uniform Globals {
+    vec4 u_position;
     mat4 u_view_proj;
+    int num_of_lights;
+    float blightness_threshold;
+    int self_luminous_id;
 };
 
 struct Data {
@@ -34,4 +38,10 @@ void main() {
     v_position = model_space.xyz;
 
     gl_Position = u_view_proj * model_space;
+
+    if (gl_InstanceIndex == self_luminous_id) {
+        v_self_illumination = 10.0;
+    } else {
+        v_self_illumination = 1.0;
+    }
 }

@@ -33,7 +33,7 @@ const INTERVAL: u32 = 100000;
 const BLIGHTNESS_THRESHOLD: f32 = 0.5;
 
 // how many times to repeat gaussian blur
-const BLUR_COUNT: usize = 10;
+const BLUR_COUNT: usize = 20;
 
 // exposure level used in blend.frag
 const EXPOSURE: f32 = 3.0;
@@ -73,7 +73,7 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 81;
+const NUM_INSTANCES: u32 = 25;
 const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
 const SHARPNESS: Option<f32> = Some(2.0);
@@ -122,7 +122,8 @@ struct Globals {
     view_proj: [[f32; 4]; 4],
     num_of_lights: u32,
     blightness_threshold: f32,
-    _padding: [u32; 2],
+    self_luminous_id: u32,
+    _padding: [u32; 1],
 }
 
 fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) -> Globals {
@@ -147,7 +148,8 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
         view_proj: (OPENGL_TO_WGPU_MATRIX * mx_projection * mx_view).into(),
         num_of_lights,
         blightness_threshold: BLIGHTNESS_THRESHOLD,
-        _padding: [0, 0],
+        self_luminous_id: (frame as f32 / 5.0).ceil() as u32 % NUM_INSTANCES + 1, // TODO: exclude plane to be illuminated
+        _padding: [0],
     }
 }
 
@@ -407,7 +409,7 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
-            Light::new((20.0, 20.0, 100.0).into(), (1.0, 1.0, 1.0).into()),
+            Light::new((20.0, 20.0, 100.0).into(), (0.5, 0.5, 0.5).into()),
             Light::new((-20.0, -20.0, 90.0).into(), (0.2, 0.4, 0.0).into()),
             Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.4, 0.2).into()),
             Light::new((50.0, 0.0, 70.0).into(), (0.3, 0.0, 0.3).into()),
@@ -1344,11 +1346,7 @@ fn create_instance_data(frame: u32) -> Vec<CubeInstanceRaw> {
             } else {
                 cgmath::Quaternion::from_axis_angle(
                     position.clone().normalize(),
-                    cgmath::Deg(
-                        frame as f32
-                            * (0.5 + (0.9 * row as f32).sin() / 2.0)
-                            * (0.3 + (z / 12.0).powi(4)),
-                    ),
+                    cgmath::Deg(frame as f32),
                 )
             };
 

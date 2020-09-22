@@ -5,6 +5,7 @@ const int MAX_LIGHTS = 10;
 layout(location = 0) in vec3 v_position;
 layout(location = 1) in vec3 v_normal;
 layout(location = 2) in vec4 v_color;
+layout(location = 3) in float v_self_illumination;
 
 layout(location = 0) out vec4 f_color;
 layout(location = 1) out vec4 b_color;
@@ -14,6 +15,7 @@ layout(set = 0, binding = 0) uniform Globals {
     mat4 u_view_proj;
     int num_of_lights;
     float blightness_threshold;
+    int self_luminous_id;
 };
 
 struct Light {
@@ -109,7 +111,7 @@ void main() {
         color += (ambient_color + diffuse_color + specular_color);
     }
 
-    f_color = vec4(color, 1.0) * object_color;
+    f_color = vec4(color, 1.0) * object_color * v_self_illumination;
     
     // extract brighter part for blur
 
