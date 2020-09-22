@@ -232,15 +232,17 @@ struct State {
     // A render pipeline to apply gaussian blur. To use gaussian blur, we need two
     // textures so that one can be rendered to another and vice versa.
     blur_bind_group_layout: wgpu::BindGroupLayout,
-    blur_uniform_bind_group_layout: wgpu::BindGroupLayout,
-    blur_uniform: BlurUniforms,
+    blur_uniform_buffer: wgpu::Buffer,
+    blur_uniform_bind_group: wgpu::BindGroup,
     blur_render_pipeline: wgpu::RenderPipeline,
     blur_texture_views: [wgpu::TextureView; 2],
+    blur_sampler: wgpu::Sampler,
     square_vertex: wgpu::Buffer,
 
     // A render pipeline for blending the results
     blend_bind_group_layout: wgpu::BindGroupLayout,
-    blend_uniform_bind_group_layout: wgpu::BindGroupLayout,
+    blend_uniform_buffer: wgpu::Buffer,
+    blend_uniform_bind_group: wgpu::BindGroup,
     blend_render_pipeline: wgpu::RenderPipeline,
 
     // Texture for MASS
@@ -684,6 +686,22 @@ impl State {
                 label: None,
             });
 
+        let blur_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<BlurUniforms>() as _,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let blur_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &blur_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: blur_uniform_buffer.as_entire_binding(),
+            }],
+            label: None,
+        });
+
         let blur_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&blur_bind_group_layout, &blur_uniform_bind_group_layout],
@@ -707,9 +725,6 @@ impl State {
             None,
         );
 
-        // Parameters for blur
-        let blur_uniform = BlurUniforms::new();
-
         // Textures to process gaussian blur in a ping-pong manner
         let blur_texture_views = [
             create_framebuffer(&device, &sc_desc, sc_desc.format)
@@ -717,6 +732,8 @@ impl State {
             create_framebuffer(&device, &sc_desc, sc_desc.format)
                 .create_view(&wgpu::TextureViewDescriptor::default()),
         ];
+
+        let blur_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
         // Vetex to draw the texture identically
         let square_vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -779,6 +796,22 @@ impl State {
                 }],
                 label: None,
             });
+
+        let blend_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<BlendUniforms>() as _,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let blend_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &blend_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: blend_uniform_buffer.as_entire_binding(),
+            }],
+            label: None,
+        });
 
         let blend_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -857,15 +890,17 @@ impl State {
             plane_bind_group,
 
             blur_bind_group_layout,
-            blur_uniform_bind_group_layout,
+            blur_uniform_buffer,
+            blur_uniform_bind_group,
             blur_render_pipeline,
-            blur_uniform,
             blur_texture_views,
+            blur_sampler,
             square_vertex,
 
             blend_bind_group_layout,
-            blend_uniform_bind_group_layout,
             blend_render_pipeline,
+            blend_uniform_buffer,
+            blend_uniform_bind_group,
 
             multisample_texture_views,
             multisample_png_texture_view,
@@ -1130,12 +1165,10 @@ impl State {
 
         // Blur ------------------------------------------------------------------------------------------------------------------
 
-        let blur_sampler = self
-            .device
-            .create_sampler(&wgpu::SamplerDescriptor::default());
-
         // Apply blur multiple times
         let blur_count = BLUR_COUNT;
+        // Parameters for blur
+        let mut blur_uniform = BlurUniforms::new();
 
         for i in 0..blur_count {
             let src = i % 2;
@@ -1150,32 +1183,20 @@ impl State {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&blur_sampler),
+                        resource: wgpu::BindingResource::Sampler(&self.blur_sampler),
                     },
                 ],
                 label: None,
             });
 
-            let blur_uniform_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: bytemuck::cast_slice(&[self.blur_uniform]),
-                        usage: wgpu::BufferUsage::UNIFORM,
-                    });
-
-            let blur_uniform_bind_group =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &self.blur_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: blur_uniform_buffer.as_entire_binding(),
-                    }],
-                    label: None,
-                });
-
             // Flip the orientation between horizontally and vertically
-            self.blur_uniform.flip();
+            blur_uniform.flip();
+
+            self.queue.write_buffer(
+                &self.blur_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[blur_uniform]),
+            );
 
             {
                 let mut blur_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1192,7 +1213,7 @@ impl State {
 
                 blur_render_pass.set_pipeline(&self.blur_render_pipeline);
                 blur_render_pass.set_bind_group(0, &blur_bind_group, &[]);
-                blur_render_pass.set_bind_group(1, &blur_uniform_bind_group, &[]);
+                blur_render_pass.set_bind_group(1, &self.blur_uniform_bind_group, &[]);
                 blur_render_pass.set_vertex_buffer(0, self.square_vertex.slice(..));
 
                 blur_render_pass.draw(0..blur::BLUR_VERTICES.len() as u32, 0..1);
@@ -1218,7 +1239,7 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.blur_sampler),
                 },
             ],
             label: None,
@@ -1229,22 +1250,11 @@ impl State {
             GAMMA,
         );
 
-        let blend_uniform_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&[blend_uniform]),
-                    usage: wgpu::BufferUsage::UNIFORM,
-                });
-
-        let blend_uniform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.blend_uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: blend_uniform_buffer.as_entire_binding(),
-            }],
-            label: None,
-        });
+        self.queue.write_buffer(
+            &self.blend_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[blend_uniform]),
+        );
 
         let png_texture_view = self
             .png_texture
@@ -1275,7 +1285,7 @@ impl State {
 
             blend_render_pass.set_pipeline(&self.blend_render_pipeline);
             blend_render_pass.set_bind_group(0, &blend_bind_group, &[]);
-            blend_render_pass.set_bind_group(1, &blend_uniform_bind_group, &[]);
+            blend_render_pass.set_bind_group(1, &self.blend_uniform_bind_group, &[]);
             blend_render_pass.set_vertex_buffer(0, self.square_vertex.slice(..));
 
             blend_render_pass.draw(0..blur::BLUR_VERTICES.len() as u32, 0..1);
