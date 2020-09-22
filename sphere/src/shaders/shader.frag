@@ -111,7 +111,7 @@ void main() {
         color += (ambient_color + diffuse_color + specular_color);
     }
 
-    f_color = vec4(color, 1.0) * object_color * v_self_illumination;
+    f_color = vec4(vec3(color) * object_color.rgb + vec3(v_self_illumination), 1.0);
     
     // extract brighter part for blur
 

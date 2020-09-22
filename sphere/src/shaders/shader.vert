@@ -40,8 +40,8 @@ void main() {
     gl_Position = u_view_proj * model_space;
 
     if (gl_InstanceIndex == self_luminous_id) {
-        v_self_illumination = 10.0;
+        v_self_illumination = 0.7;
     } else {
-        v_self_illumination = 1.0;
+        v_self_illumination = 0.0;
     }
 }

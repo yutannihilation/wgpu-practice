@@ -6,7 +6,7 @@ layout(location = 0) out vec4 f_color;
 layout(set = 0, binding = 0) uniform texture2D t_staging;
 layout(set = 0, binding = 1) uniform sampler s_staging;
 
-float weight[5] = float[] (0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+float weight[5] = float[] (0.257317771, 0.208992692, 0.111973449, 0.039575066, 0.009226795);
 
 layout(set = 1, binding = 0)
 uniform Uniforms {

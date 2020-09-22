@@ -30,13 +30,13 @@ const IMAGE_DIR: &str = "img";
 const INTERVAL: u32 = 100000;
 
 // Threshold to choose the blight part to add bloom effect [0-1]
-const BLIGHTNESS_THRESHOLD: f32 = 0.5;
+const BLIGHTNESS_THRESHOLD: f32 = 0.7;
 
 // how many times to repeat gaussian blur
 const BLUR_COUNT: usize = 20;
 
 // exposure level used in blend.frag
-const EXPOSURE: f32 = 3.0;
+const EXPOSURE: f32 = 5.0;
 
 // gamma correction used in blend.frag
 const GAMMA: f32 = 2.2;
@@ -411,10 +411,10 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
-            Light::new((20.0, 20.0, 100.0).into(), (0.5, 0.5, 0.5).into()),
-            Light::new((-20.0, -20.0, 90.0).into(), (0.2, 0.4, 0.0).into()),
-            Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.4, 0.2).into()),
-            Light::new((50.0, 0.0, 70.0).into(), (0.3, 0.0, 0.3).into()),
+            Light::new((20.0, 20.0, 100.0).into(), (0.1, 0.1, 0.1).into()),
+            Light::new((-20.0, -20.0, 90.0).into(), (0.1, 0.2, 0.0).into()),
+            Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.2, 0.1).into()),
+            Light::new((50.0, 0.0, 70.0).into(), (0.15, 0.0, 0.15).into()),
         ];
         let light_size = std::mem::size_of::<LightRaw>() as u64;
 
