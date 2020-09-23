@@ -33,15 +33,11 @@ pub struct BlurUniforms {
 }
 
 impl BlurUniforms {
-    pub fn new() -> Self {
+    pub fn new(i: u32) -> Self {
         Self {
-            horizontal: 1,
+            horizontal: i,
             _padding: [0, 0, 0],
         }
-    }
-
-    pub fn flip(&mut self) {
-        self.horizontal = (self.horizontal + 1) % 2;
     }
 }
 

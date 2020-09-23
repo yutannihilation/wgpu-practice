@@ -134,7 +134,7 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 15.0f32 + (frame as f32 / 50.0);
+    let distance = 10.0f32 + (frame as f32 / 20.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -258,7 +258,7 @@ struct State {
 
     output_dir: std::path::PathBuf,
 
-    update_light_buffer: bool,
+    write_buffers: bool,
 
     frame: u32,
     next_frame: u32,
@@ -672,23 +672,26 @@ impl State {
                 label: None,
             });
 
+        let blur_uniform_buffer_size = std::mem::size_of::<BlurUniforms>() as _;
+
         let blur_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::UniformBuffer {
-                        dynamic: false,
-                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<bool>() as _),
+                        dynamic: true, // needs two uniforms for horizontally and vertically
+                        min_binding_size: wgpu::BufferSize::new(blur_uniform_buffer_size),
                     },
                     count: None,
                 }],
                 label: None,
             });
 
+        //Note: dynamic offsets also have to be aligned to `BIND_BUFFER_ALIGNMENT`.
         let blur_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: std::mem::size_of::<BlurUniforms>() as _,
+            size: 2 * wgpu::BIND_BUFFER_ALIGNMENT,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
@@ -697,7 +700,11 @@ impl State {
             layout: &blur_uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: blur_uniform_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &blur_uniform_buffer,
+                    offset: 0, // We set a DynamicOffset at set_bind_group(), so this is 0
+                    size: wgpu::BufferSize::new(blur_uniform_buffer_size),
+                },
             }],
             label: None,
         });
@@ -924,7 +931,7 @@ impl State {
 
             output_dir,
 
-            update_light_buffer: true,
+            write_buffers: true,
 
             frame: 0,
             next_frame: INTERVAL / 4,
@@ -1052,8 +1059,10 @@ impl State {
             bytemuck::cast_slice(&[vp_uniforms]),
         );
 
-        if self.update_light_buffer {
-            self.update_light_buffer = false;
+        if self.write_buffers {
+            self.write_buffers = false;
+
+            // write light buffer
             for (i, light) in self.lights.iter().enumerate() {
                 self.queue.write_buffer(
                     &self.light_buffer,
@@ -1061,6 +1070,19 @@ impl State {
                     bytemuck::bytes_of(&light.to_raw()),
                 );
             }
+
+            // write blur uniform buffer
+            let blur_uniforms = (0..=1).map(BlurUniforms::new).collect::<Vec<_>>();
+            self.queue.write_buffer(
+                &self.blur_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[blur_uniforms[0]]),
+            );
+            self.queue.write_buffer(
+                &self.blur_uniform_buffer,
+                wgpu::BIND_BUFFER_ALIGNMENT,
+                bytemuck::cast_slice(&[blur_uniforms[1]]),
+            );
         }
 
         self.queue.write_buffer(
@@ -1167,12 +1189,13 @@ impl State {
 
         // Apply blur multiple times
         let blur_count = BLUR_COUNT;
-        // Parameters for blur
-        let mut blur_uniform = BlurUniforms::new();
 
         for i in 0..blur_count {
             let src = i % 2;
             let dst = (i + 1) % 2;
+
+            let blur_uniform_offset: wgpu::DynamicOffset =
+                ((i % 2) * wgpu::BIND_BUFFER_ALIGNMENT as usize) as _;
 
             let blur_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.blur_bind_group_layout,
@@ -1189,15 +1212,6 @@ impl State {
                 label: None,
             });
 
-            // Flip the orientation between horizontally and vertically
-            blur_uniform.flip();
-
-            self.queue.write_buffer(
-                &self.blur_uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[blur_uniform]),
-            );
-
             {
                 let mut blur_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -1213,7 +1227,11 @@ impl State {
 
                 blur_render_pass.set_pipeline(&self.blur_render_pipeline);
                 blur_render_pass.set_bind_group(0, &blur_bind_group, &[]);
-                blur_render_pass.set_bind_group(1, &self.blur_uniform_bind_group, &[]);
+                blur_render_pass.set_bind_group(
+                    1,
+                    &self.blur_uniform_bind_group,
+                    &[blur_uniform_offset],
+                );
                 blur_render_pass.set_vertex_buffer(0, self.square_vertex.slice(..));
 
                 blur_render_pass.draw(0..blur::BLUR_VERTICES.len() as u32, 0..1);
