@@ -688,7 +688,9 @@ impl State {
                 label: None,
             });
 
-        //Note: dynamic offsets also have to be aligned to `BIND_BUFFER_ALIGNMENT`.
+        // Blur uniform buffer is dynamic because it needs to contain two uniforms for two-pass gaussian blur (horizontally and vertically)
+        // This is because, as queue.write_buffer() is only ordered with submit(), we cannot write_buffer() on the same region of a buffer.
+        // Note that dynamic offsets also have to be aligned to `BIND_BUFFER_ALIGNMENT`.
         let blur_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 2 * wgpu::BIND_BUFFER_ALIGNMENT,
@@ -1123,11 +1125,11 @@ impl State {
             render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             render_pass.draw_indexed(0..(self.index_count as u32), 0, 0..NUM_INSTANCES);
 
-            // draw plane
-            render_pass.set_bind_group(0, &self.plane_bind_group, &[]);
-            render_pass.set_index_buffer(self.plane_index_buf.slice(..));
-            render_pass.set_vertex_buffer(0, self.plane_vertex_buf.slice(..));
-            render_pass.draw_indexed(0..(self.plane_index_count as u32), 0, 0..1);
+            // draw plane (Probably I don't need to render plane as it doesn't make shadow by itself...?)
+            // render_pass.set_bind_group(0, &self.plane_bind_group, &[]);
+            // render_pass.set_index_buffer(self.plane_index_buf.slice(..));
+            // render_pass.set_vertex_buffer(0, self.plane_vertex_buf.slice(..));
+            // render_pass.draw_indexed(0..(self.plane_index_count as u32), 0, 0..1);
         }
 
         let staging_texture_view = self
