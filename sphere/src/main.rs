@@ -73,9 +73,9 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 25;
+const NUM_INSTANCES: u32 = 121;
 const SIZE_OF_CUBE: f32 = 2.0;
-const INTERVAL_BETWEEN_CUBE: f32 = 0.6;
+const INTERVAL_BETWEEN_CUBE: f32 = 1.5;
 const SHARPNESS: Option<f32> = Some(2.0);
 const SUBDIVIDE_LIMIT: usize = 10;
 const PLANE_SIZE: u32 = 1000;
@@ -411,10 +411,9 @@ impl State {
 
         // Light ------------------------------------------------------------------------------------------------------------
         let lights = vec![
-            Light::new((20.0, 20.0, 100.0).into(), (0.1, 0.1, 0.1).into()),
-            Light::new((-20.0, -20.0, 90.0).into(), (0.1, 0.2, 0.0).into()),
-            Light::new((0.0, 50.0, 80.0).into(), (0.0, 0.2, 0.1).into()),
-            Light::new((50.0, 0.0, 70.0).into(), (0.15, 0.0, 0.15).into()),
+            Light::new((20.0, 20.0, 100.0).into(), (0.2, 0.2, 0.2).into()),
+            Light::new((22.0, 18.0, 90.0).into(), (0.2, 0.2, 0.2).into()),
+            Light::new((24.0, 16.0, 80.0).into(), (0.2, 0.2, 0.2).into()),
         ];
         let light_size = std::mem::size_of::<LightRaw>() as u64;
 

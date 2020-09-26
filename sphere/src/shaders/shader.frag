@@ -111,6 +111,8 @@ void main() {
         color += (ambient_color + diffuse_color + specular_color);
     }
 
+    // TODO: more nice equation to add self-illumination is needed
+    // c.f. https://google.github.io/filament/Filament.md.html#imagingpipeline/physicallybasedcamera/bloom
     f_color = vec4(vec3(color) * object_color.rgb + vec3(v_self_illumination), 1.0);
     
     // extract brighter part for blur
