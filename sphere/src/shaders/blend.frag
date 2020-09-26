@@ -19,7 +19,8 @@ void main() {
     vec3 blur_color = texture(sampler2D(t_blur, s_base), v_tex_coords).rgb;
 
     // additive blending
-    hdr_color += blur_color;
+    // hdr_color += blur_color;
+    hdr_color = blur_color;
 
     // converting HDR values to LDR values (tone mapping)
     // c.f. https://en.wikipedia.org/wiki/Tone_mapping, https://learnopengl.com/Advanced-Lighting/HDR

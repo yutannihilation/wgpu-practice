@@ -30,7 +30,7 @@ const IMAGE_DIR: &str = "img";
 const INTERVAL: u32 = 100000;
 
 // Threshold to choose the blight part to add bloom effect [0-1]
-const BLIGHTNESS_THRESHOLD: f32 = 0.7;
+const BLIGHTNESS_THRESHOLD: f32 = 0.0;
 
 // how many times to repeat gaussian blur
 const BLUR_COUNT: usize = 20;
@@ -228,6 +228,7 @@ struct State {
     shadow_bind_group: wgpu::BindGroup,
     shadow_target_views: Vec<wgpu::TextureView>,
     shadow_render_pipeline: wgpu::RenderPipeline,
+    shadow_sampler: wgpu::Sampler, // shadow sampler is a sampler for depth texture and is used in blur as well to do DoF
 
     // A render pipeline to apply gaussian blur. To use gaussian blur, we need two
     // textures so that one can be rendered to another and vice versa.
@@ -246,7 +247,7 @@ struct State {
     blend_render_pipeline: wgpu::RenderPipeline,
 
     // Texture for MASS
-    multisample_texture_views: [wgpu::TextureView; 2], // two textures are needed at the same time as we need usual one and the one for blur separately
+    multisample_texture_view: wgpu::TextureView, // two textures are needed at the same time as we need usual one and the one for blur separately
     multisample_png_texture_view: wgpu::TextureView, // a texture for PNG has a different TextureFormat, so we need another multisampled texture than others
 
     // Texture for writing out as PNG
@@ -582,7 +583,7 @@ impl State {
             Some(&device.create_shader_module(wgpu::include_spirv!("shaders/shader.frag.spv"))),
             None, // use the default rasterization_state_descripor
             &vertex_buffers,
-            SAMPLE_COUNT,
+            1,
             vec![sc_desc.format, sc_desc.format],
             Some(depth_stencil_state.clone()),
         );
@@ -643,6 +644,24 @@ impl State {
             Some(shadow_depth_stencil_state),
         );
 
+        // Depth texture (this is used for blur as well) -----------------------------------------------------------------------------
+
+        let depth_texture_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: sc_desc.width,
+                    height: sc_desc.height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+                label: None,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
         // Blur ----------------------------------------------------------------------------------------------------------------------
         //
         // Blur render pipeline needs two bind groups:
@@ -651,11 +670,12 @@ impl State {
         let blur_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
+                    // texture to blur
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: true,
+                            multisampled: false,
                             dimension: wgpu::TextureViewDimension::D2,
                             component_type: wgpu::TextureComponentType::Float,
                         },
@@ -665,6 +685,23 @@ impl State {
                         binding: 1,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::Sampler { comparison: false },
+                        count: None,
+                    },
+                    // depth mapping of the camera view
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::SampledTexture {
+                            multisampled: false,
+                            component_type: wgpu::TextureComponentType::DepthComparison,
+                            dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler { comparison: true },
                         count: None,
                     },
                 ],
@@ -728,7 +765,7 @@ impl State {
                 step_mode: wgpu::InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
             }],
-            SAMPLE_COUNT,
+            1,
             vec![sc_desc.format],
             None,
         );
@@ -846,21 +883,12 @@ impl State {
 
         // MSAA --------------------------------------------------------------------------------------------------------
 
-        let multisample_texture_views = [
+        let multisample_texture_view =
             create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format)
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-            create_multisampled_framebuffer(&device, &sc_desc, sc_desc.format)
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        ];
-
+                .create_view(&wgpu::TextureViewDescriptor::default());
         let multisample_png_texture_view =
             create_multisampled_framebuffer(&device, &sc_desc, wgpu::TextureFormat::Rgba8UnormSrgb)
                 .create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Depth texture ----------------------------------------------------------------------------------------------------
-
-        let depth_texture_view = create_depth_texture(&device, &sc_desc)
-            .create_view(&wgpu::TextureViewDescriptor::default());
 
         // PNG output ----------------------------------------------------------------------------------------------------
 
@@ -910,7 +938,7 @@ impl State {
             blend_uniform_buffer,
             blend_uniform_bind_group,
 
-            multisample_texture_views,
+            multisample_texture_view,
             multisample_png_texture_view,
 
             depth_texture_view,
@@ -924,6 +952,8 @@ impl State {
             shadow_render_pipeline,
             shadow_bind_group,
             shadow_target_views,
+            shadow_sampler,
+
             png_texture,
             png_buffer,
             png_dimensions,
@@ -949,12 +979,9 @@ impl State {
 
         self.staging_texture = create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format);
 
-        self.multisample_texture_views = [
+        self.multisample_texture_view =
             create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-            create_multisampled_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        ];
+                .create_view(&wgpu::TextureViewDescriptor::default());
         self.blur_texture_views = [
             create_framebuffer(&self.device, &self.sc_desc, self.sc_desc.format)
                 .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -1141,16 +1168,16 @@ impl State {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
                     wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.multisample_texture_views[0],
-                        resolve_target: Some(&staging_texture_view),
+                        attachment: &staging_texture_view,
+                        resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BG_COLOR),
                             store: true,
                         },
                     },
                     wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.multisample_texture_views[1],
-                        resolve_target: Some(&self.blur_texture_views[0]),
+                        attachment: &self.blur_texture_views[0],
+                        resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BG_COLOR),
                             store: true,
@@ -1209,6 +1236,14 @@ impl State {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.blur_sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&self.depth_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
+                    },
                 ],
                 label: None,
             });
@@ -1216,8 +1251,8 @@ impl State {
             {
                 let mut blur_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.multisample_texture_views[0],
-                        resolve_target: Some(&self.blur_texture_views[dst]),
+                        attachment: &self.blur_texture_views[dst],
+                        resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: true,
@@ -1283,7 +1318,7 @@ impl State {
             let mut blend_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
                     wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.multisample_texture_views[0],
+                        attachment: &self.multisample_texture_view,
                         resolve_target: Some(&frame.output.view),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
