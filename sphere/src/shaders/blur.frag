@@ -18,6 +18,7 @@ const float GOLDEN_ANGLE = 2.39996323;
 const float MAX_BLUR_SIZE = 30.0; 
 const float RAD_SCALE = 0.5; // Smaller = nicer blur, larger = faster
 const float FOCUS_SCALE = 2.0; // TODO: provide dynamically as uniform
+// TOOD: the depth is around 0.9~0.95? Maybe I'm doing somthing wrong...
 const float FOCUS_POINT = 0.92;
 const float FAR = 1.0;
 
