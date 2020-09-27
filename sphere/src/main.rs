@@ -73,7 +73,7 @@ impl PNGDimensions {
     }
 }
 
-const NUM_INSTANCES: u32 = 121;
+const NUM_INSTANCES: u32 = 81;
 const SIZE_OF_CUBE: f32 = 2.0;
 const INTERVAL_BETWEEN_CUBE: f32 = 1.5;
 const SHARPNESS: Option<f32> = Some(2.0);
@@ -130,11 +130,11 @@ fn generate_global_uniform(aspect_ratio: f32, frame: u32, num_of_lights: u32) ->
     let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 0.5, 200.0);
     let rot1 = (frame + 400) as f32 / 200.0;
 
-    let rot2_max = std::f32::consts::PI / 4.0;
+    let rot2_max = std::f32::consts::PI * 1.0 / 13.0;
     let rot2 = rot2_max;
     // * ((3001 - std::cmp::min(frame, 3000)) as f32 / 3000.0).powi(3);
 
-    let distance = 10.0f32 + (frame as f32 / 20.0);
+    let distance = 51.0f32 + (frame as f32 / 100.0);
     let eye = cgmath::Point3::new(
         distance * rot1.sin() * rot2.sin(),
         distance * rot1.cos() * rot2.sin(),
@@ -216,6 +216,7 @@ struct State {
     plane_index_count: usize,
     plane_bind_group: wgpu::BindGroup,
 
+    depth_texture: wgpu::Texture, // TODO: This is exposed for debugging purposes.
     depth_texture_view: wgpu::TextureView,
 
     globals_bind_group: wgpu::BindGroup,
@@ -646,21 +647,8 @@ impl State {
 
         // Depth texture (this is used for blur as well) -----------------------------------------------------------------------------
 
-        let depth_texture_view = device
-            .create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d {
-                    width: sc_desc.width,
-                    height: sc_desc.height,
-                    depth: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
-                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
-                label: None,
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_texture = create_depth_texture(&device, &sc_desc);
+        let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Blur ----------------------------------------------------------------------------------------------------------------------
         //
@@ -675,9 +663,9 @@ impl State {
                         binding: 0,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: false,
                             dimension: wgpu::TextureViewDimension::D2,
                             component_type: wgpu::TextureComponentType::Float,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -692,9 +680,9 @@ impl State {
                         binding: 2,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: false,
-                            component_type: wgpu::TextureComponentType::DepthComparison,
                             dimension: wgpu::TextureViewDimension::D2,
+                            component_type: wgpu::TextureComponentType::Float,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -941,6 +929,7 @@ impl State {
             multisample_texture_view,
             multisample_png_texture_view,
 
+            depth_texture,
             depth_texture_view,
 
             globals_bind_group,
@@ -996,7 +985,9 @@ impl State {
         )
         .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.depth_texture_view = create_depth_texture(&self.device, &self.sc_desc)
+        self.depth_texture = create_depth_texture(&self.device, &self.sc_desc);
+        self.depth_texture_view = self
+            .depth_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let (png_dimensions, png_buffer, png_texture) = create_png_texture_and_buffer(
@@ -1288,7 +1279,7 @@ impl State {
                     binding: 1,
                     // a texture that contains the last result of gaussian blur
                     resource: wgpu::BindingResource::TextureView(
-                        &self.blur_texture_views[blur_count % 2],
+                        &self.blur_texture_views[blur_count % 2], // TODO: needs +1...?
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -1393,8 +1384,9 @@ fn create_instance_data(frame: u32) -> Vec<CubeInstanceRaw> {
             let row = (x / width) as i32;
             let col = (x % width) as i32;
             let phase = (5 * row + 3 * col + 2 * row * col) as f32 * std::f32::consts::PI / 30.0;
-            let z =
-                (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin()) * (1.0 + frame as f32 / 1000.0);
+            let z = (3.0 + 4.0 * (frame as f32 / 60.0 + phase).sin())
+                * (1.0 + frame as f32 / 1000.0)
+                * 5.0;
             let position = cgmath::Vector3 {
                 x: (row - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
                 y: (col - offset) as f32 * (SIZE_OF_CUBE + INTERVAL_BETWEEN_CUBE),
@@ -1487,16 +1479,11 @@ fn create_depth_texture(
     device: &wgpu::Device,
     sc_desc: &wgpu::SwapChainDescriptor,
 ) -> wgpu::Texture {
+    // COPY_SRC is just for debugging purpose (so that we can write the buffer to a PNG file)
     let usage = wgpu::TextureUsage::OUTPUT_ATTACHMENT
         | wgpu::TextureUsage::SAMPLED
         | wgpu::TextureUsage::COPY_SRC;
-    create_texture(
-        device,
-        sc_desc,
-        SAMPLE_COUNT,
-        usage,
-        wgpu::TextureFormat::Depth32Float,
-    )
+    create_texture(device, sc_desc, 1, usage, wgpu::TextureFormat::Depth32Float)
 }
 
 fn create_render_pipeline(

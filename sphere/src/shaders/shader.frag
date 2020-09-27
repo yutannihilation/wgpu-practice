@@ -1,6 +1,8 @@
 #version 450
 
 const int MAX_LIGHTS = 10;
+// compensate for the Y-flip difference between the NDC and texture coordinates
+const vec2 FLIP_CORRECTION = vec2(0.5, -0.5);
 
 layout(location = 0) in vec3 v_position;
 layout(location = 1) in vec3 v_normal;
@@ -30,7 +32,7 @@ layout(set = 1, binding = 0) uniform Lights {
 layout(set = 1, binding = 1) uniform texture2DArray t_Shadow;
 layout(set = 1, binding = 2) uniform samplerShadow s_Shadow;
 
-const int pcf_size = 4;
+const int pcf_size = 5;
 
 // original code is https://github.com/gfx-rs/wgpu-rs/blob/d6ff0b63505a883c847a08c99f0e2e009e15d2c4/examples/shadow/forward.frag#L31-L45
 float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
@@ -47,9 +49,6 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
     // To prevent shadow acne, add a small bias
     z_local -= bias;
 
-    // compensate for the Y-flip difference between the NDC and texture coordinates
-    const vec2 flip_correction = vec2(0.5, -0.5);
-
     float shadow = 0.0;
     
     vec2 texel_size = 1.0 / vec2(textureSize(sampler2DArrayShadow(t_Shadow, s_Shadow), 0));
@@ -59,7 +58,7 @@ float fetch_shadow(int light_id, vec4 homogeneous_coords, float bias) {
             vec2 offset = vec2(x, y) * texel_size;
             // compute texture coordinates for shadow lookup
             vec4 light_local = vec4(
-                homogeneous_coords.xy * flip_correction / homogeneous_coords.w + 0.5 + offset,
+                homogeneous_coords.xy * FLIP_CORRECTION / homogeneous_coords.w + 0.5 + offset,
                 light_id,
                 z_local
             );
@@ -92,7 +91,7 @@ void main() {
 
         vec3 light_dir = normalize(u_lights[i].position.xyz - v_position);
 
-        float bias = max(0.0003 * (1.0 - dot(normal, light_dir)), 0.0001);
+        float bias = max(0.003 * (1.0 - dot(normal, light_dir)), 0.001);
         float shadow = fetch_shadow(i, u_lights[i].view_proj * vec4(v_position, 1.0), bias);
 
         float diffuse_strength = max(dot(normal, light_dir), 0.0);
